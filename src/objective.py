@@ -1,11 +1,8 @@
 """
 src/objective.py
-
-Objective function for four-bar optimization.
 """
 
 from dataclasses import dataclass
-
 import numpy as np
 
 from trajectory import Trajectory
@@ -30,34 +27,53 @@ class Objective:
         target: TargetTrajectory,
     ) -> ObjectiveResult:
 
-        v = trajectory.speed
-        vt = target.velocity
+        #
+        # Invalid geometry
+        #
 
-        n = len(v)
+        if not np.all(trajectory.valid):
+
+            return ObjectiveResult(
+                total_score=0.0,
+                stop_score=0.0,
+                forward_score=0.0,
+                return_score=0.0,
+            )
+
+        #
+        # Normalize velocity
+        #
+
+        speed = trajectory.speed.copy()
+
+        vmax = np.max(np.abs(speed))
+
+        if vmax > 1e-12:
+            speed /= vmax
+
+        target_speed = target.velocity
+
+        n = len(speed)
 
         q1 = n // 4
         q2 = n // 2
 
         stop = self._segment_score(
-            v[:q1],
-            vt[:q1],
+            speed[:q1],
+            target_speed[:q1],
         )
 
         forward = self._segment_score(
-            v[q1:q2],
-            vt[q1:q2],
+            speed[q1:q2],
+            target_speed[q1:q2],
         )
 
         back = self._segment_score(
-            v[q2:],
-            vt[q2:],
+            speed[q2:],
+            target_speed[q2:],
         )
 
-        total = (
-            stop +
-            forward +
-            back
-        ) / 3.0
+        total = (stop + forward + back) / 3.0
 
         return ObjectiveResult(
             total_score=total,
@@ -68,12 +84,12 @@ class Objective:
 
     @staticmethod
     def _segment_score(
-        speed,
-        target,
-    ):
+        speed: np.ndarray,
+        target: np.ndarray,
+    ) -> float:
 
         #
-        # erreur moyenne
+        # Mean error
         #
 
         mean_error = np.mean(
@@ -81,19 +97,20 @@ class Objective:
         )
 
         #
-        # stabilité
+        # Plateau stability
         #
 
-        std = np.std(speed)
+        stability = np.std(speed)
 
         #
-        # score
+        # Combined penalty
         #
 
-        score = 100.0
+        penalty = (
+            mean_error
+            + 0.5 * stability
+        )
 
-        score -= 50.0 * mean_error
+        score = 100.0 * np.exp(-penalty)
 
-        score -= 50.0 * std
-
-        return max(score, 0.0)
+        return float(score)
