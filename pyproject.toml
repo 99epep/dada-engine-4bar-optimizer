@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dada-engine-4bar-optimizer"
+version = "0.1.0"
+description = "Optimization of a four-bar linkage for the DADA Engine."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "TBD" }
+
+authors = [
+    { name = "Étienne DADA" }
+]
+
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.14",
+    "matplotlib>=3.9"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
