@@ -1,12 +1,29 @@
 """
 src/objective.py
+
+Score computation for a candidate trajectory.
+
+The score is based on:
+
+- one 90° stationary phase
+- one 90° fast phase
+- one 180° slow phase
+
+The stationary phase may be centred on 90° or 270°.
+
+Velocity sign is ignored.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+
 import numpy as np
 
-from trajectory import Trajectory
-from target import TargetTrajectory
+
+# ---------------------------------------------------------
+# Result
+# ---------------------------------------------------------
 
 
 @dataclass(slots=True)
@@ -15,100 +32,146 @@ class ObjectiveResult:
     total_score: float
 
     stop_score: float
-    forward_score: float
-    return_score: float
+
+    fast_score: float
+
+    slow_score: float
+
+
+# ---------------------------------------------------------
+# Objective
+# ---------------------------------------------------------
 
 
 class Objective:
 
     def evaluate(
         self,
-        trajectory: Trajectory,
-        target: TargetTrajectory,
+        speed: np.ndarray,
     ) -> ObjectiveResult:
 
-        #
-        # Invalid geometry
-        #
+        speed = np.abs(speed).astype(float)
 
-        if not np.all(trajectory.valid):
+        vmax = np.max(speed)
 
-            return ObjectiveResult(
-                total_score=0.0,
-                stop_score=0.0,
-                forward_score=0.0,
-                return_score=0.0,
-            )
+        if vmax < 1e-12:
 
-        #
-        # Normalize velocity
-        #
+            return ObjectiveResult(0.0, 0.0, 0.0, 0.0)
 
-        speed = trajectory.speed.copy()
+        speed /= vmax
 
-        vmax = np.max(np.abs(speed))
+        score_a = self._evaluate_layout(
+            speed,
+            stop_start=1,
+        )
 
-        if vmax > 1e-12:
-            speed /= vmax
+        score_b = self._evaluate_layout(
+            speed,
+            stop_start=5,
+        )
 
-        target_speed = target.velocity
+        if score_a.total_score >= score_b.total_score:
+            return score_a
+
+        return score_b
+
+    # -----------------------------------------------------
+
+    def _evaluate_layout(
+        self,
+        speed,
+        stop_start,
+    ):
 
         n = len(speed)
 
-        q1 = n // 4
-        q2 = n // 2
+        eighth = n // 8
 
-        stop = self._segment_score(
-            speed[:q1],
-            target_speed[:q1],
+        stop0 = stop_start * eighth
+        stop1 = stop0 + 2 * eighth
+
+        stop = speed[stop0:stop1]
+
+        remaining = np.concatenate(
+
+            (
+                speed[:stop0],
+                speed[stop1:],
+            )
+
         )
 
-        forward = self._segment_score(
-            speed[q1:q2],
-            target_speed[q1:q2],
+        first = remaining[:2 * eighth]
+
+        second = remaining[2 * eighth:]
+
+        first_mean = np.mean(first)
+        second_mean = np.mean(second)
+
+        #
+        # identify fast / slow
+        #
+
+        if first_mean >= second_mean:
+
+            fast = first
+            slow = second
+
+        else:
+
+            fast = second
+            slow = first
+
+        stop_score = self._plateau(
+            stop,
+            0.0,
         )
 
-        back = self._segment_score(
-            speed[q2:],
-            target_speed[q2:],
+        fast_score = self._plateau(
+            fast,
+            1.0,
         )
 
-        total = (stop + forward + back) / 3.0
+        slow_score = self._plateau(
+            slow,
+            0.5,
+        )
+
+        total = (
+            stop_score
+            + fast_score
+            + slow_score
+        ) / 3.0
 
         return ObjectiveResult(
+
             total_score=total,
-            stop_score=stop,
-            forward_score=forward,
-            return_score=back,
+
+            stop_score=stop_score,
+
+            fast_score=fast_score,
+
+            slow_score=slow_score,
+
         )
+
+    # -----------------------------------------------------
 
     @staticmethod
-    def _segment_score(
-        speed: np.ndarray,
-        target: np.ndarray,
-    ) -> float:
+    def _plateau(
+        values,
+        target,
+    ):
 
-        #
-        # Mean error
-        #
+        mean = np.mean(values)
 
-        mean_error = np.mean(
-            np.abs(speed - target)
-        )
+        std = np.std(values)
 
-        #
-        # Plateau stability
-        #
-
-        stability = np.std(speed)
-
-        #
-        # Combined penalty
-        #
+        error = abs(mean - target)
 
         penalty = (
-            mean_error
-            + 0.5 * stability
+            error
+            + 0.50 * std
         )
 
         score = 100.0 * np.exp(-penalty)
