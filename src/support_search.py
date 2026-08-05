@@ -3,6 +3,8 @@
 # =========================
 
 import math
+from models import CandidateCurve, Support, SupportKind
+from kinematics import point_on_rocker, point_on_coupler
 
 
 def generate_candidates(mechanism):
