@@ -5,6 +5,7 @@
 import math
 import numpy as np
 
+from models import CandidateCurve, KinematicResult, SupportKind
 
 def solve(mechanism, config):
     """
