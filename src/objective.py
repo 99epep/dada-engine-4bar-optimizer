@@ -4,6 +4,7 @@
 
 import numpy as np
 
+from models import CandidateResult
 
 def evaluate_candidate(curve, config):
     """
