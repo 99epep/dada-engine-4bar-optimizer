@@ -7,7 +7,7 @@ from models import CandidateCurve, Support, SupportKind
 from kinematics import point_on_rocker, point_on_coupler
 
 
-def generate_candidates(mechanism):
+def generate_candidates(mechanism, config):
     """
     Generate every candidate support for one mechanism.
 
@@ -30,7 +30,7 @@ def _generate_E_candidates(mechanism):
 
     candidates = []
 
-    for angle_deg in range(0, 180, 10):
+    for angle_deg in range(0, 180, int(config.support_E_step_deg)):
 
         angle = math.radians(angle_deg)
 
@@ -53,8 +53,8 @@ def _generate_E_candidates(mechanism):
 
 def _generate_F_candidates(mechanism):
 
-    radius = 2.0 * mechanism.coupler
-    step = 0.20 * mechanism.coupler
+    radius = config.support_F_radius_factor * mechanism.coupler
+    step = config.support_F_grid_step_factor * mechanism.coupler
 
     candidates = []
 

@@ -33,7 +33,7 @@ def optimize(config):
         if not kinematics.valid:
             continue
 
-        supports = generate_candidates(mechanism)
+        supports = generate_candidates(mechanism, config)
 
         stats.supports_generated += len(supports)
 
@@ -159,7 +159,7 @@ def optimize_with_statistics(config):
         if not kinematics.valid:
             continue
 
-        supports = generate_candidates(mechanism)
+        supports = generate_candidates(mechanism, config)
 
         stats.supports_generated += len(supports)
 
