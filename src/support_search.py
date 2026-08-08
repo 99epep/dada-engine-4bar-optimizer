@@ -26,7 +26,7 @@ def generate_candidates(mechanism):
 
 def _generate_E_candidates(mechanism):
 
-    radius = mechanism.rocker / 2.0
+    radius = mechanism.rocker
 
     candidates = []
 
@@ -58,6 +58,10 @@ def _generate_F_candidates(mechanism):
 
     candidates = []
 
+    # The disk is centered on the midpoint of BC.
+    # local_x is measured from B along BC, so the center is BC/2.
+    center_x = 0.5 * mechanism.coupler
+
     x = -radius
 
     while x <= radius:
@@ -71,7 +75,7 @@ def _generate_F_candidates(mechanism):
                 candidates.append(
                     Support(
                         kind=SupportKind.F,
-                        local_x=x,
+                        local_x=center_x + x,
                         local_y=y,
                     )
                 )
@@ -123,8 +127,23 @@ def _build_E_curve(kinematics, support):
     """
     Point attached to rocker CD.
     """
-    raise NotImplementedError(
-        "_build_E_curve() will be implemented after kinematics.py"
+    points = point_on_rocker(kinematics, support)
+
+    x = points[:, 0]
+    y = points[:, 1]
+
+    displacement = y - y[0]
+    velocity = __import__("numpy").gradient(
+        displacement,
+        kinematics.theta,
+    )
+
+    return CandidateCurve(
+        theta=kinematics.theta,
+        x=x,
+        y=y,
+        displacement=displacement,
+        velocity=velocity,
     )
 
 
@@ -132,6 +151,21 @@ def _build_F_curve(kinematics, support):
     """
     Point attached to coupler BC.
     """
-    raise NotImplementedError(
-        "_build_F_curve() will be implemented after kinematics.py"
+    points = point_on_coupler(kinematics, support)
+
+    x = points[:, 0]
+    y = points[:, 1]
+
+    displacement = y - y[0]
+    velocity = __import__("numpy").gradient(
+        displacement,
+        kinematics.theta,
+    )
+
+    return CandidateCurve(
+        theta=kinematics.theta,
+        x=x,
+        y=y,
+        displacement=displacement,
+        velocity=velocity,
     )

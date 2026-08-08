@@ -52,7 +52,6 @@ def evaluate_candidate(curve, config):
 # ---------------------------------------------------------------------
 
 def _compute_metrics(curve):
-
     displacement = curve.displacement
     velocity = curve.velocity
     theta = curve.theta
@@ -62,36 +61,90 @@ def _compute_metrics(curve):
     if stroke <= 0.0:
         stroke = 1e-12
 
-    plateau = np.abs(velocity) <= 0.05 * np.max(np.abs(velocity))
+    vmax = np.max(np.abs(velocity))
 
-    plateau_indices = np.where(plateau)[0]
+    if vmax <= 0.0:
+        plateau = np.zeros_like(velocity, dtype=bool)
+    else:
+        plateau = np.abs(velocity) <= 0.05 * vmax
 
-    if len(plateau_indices):
+    # Find contiguous low-speed regions.
+    regions = []
 
-        start = plateau_indices[0]
-        end = plateau_indices[-1]
+    indices = np.flatnonzero(plateau)
+
+    if len(indices):
+        start = indices[0]
+        previous = indices[0]
+
+        for index in indices[1:]:
+            if index != previous + 1:
+                regions.append((start, previous))
+                start = index
+            previous = index
+
+        regions.append((start, previous))
+
+    # Keep only plateaus that are long enough to be relevant.
+    candidates = []
+
+    for start, end in regions:
+        width = theta[end] - theta[start]
+
+        if width < 45.0:
+            continue
+
+        center = 0.5 * (theta[start] + theta[end])
+
+        # Normalize angular distance around 360°.
+        d90 = abs((center - 90.0 + 180.0) % 360.0 - 180.0)
+        d270 = abs((center - 270.0 + 180.0) % 360.0 - 180.0)
+
+        if min(d90, d270) <= 20.0:
+            candidates.append((start, end))
+
+    if candidates:
+        # Prefer the plateau closest to 90°/270°.
+        start, end = min(
+            candidates,
+            key=lambda pair: min(
+                abs((0.5 * (theta[pair[0]] + theta[pair[1]]) - 90.0 + 180.0) % 360.0 - 180.0),
+                abs((0.5 * (theta[pair[0]] + theta[pair[1]]) - 270.0 + 180.0) % 360.0 - 180.0),
+            ),
+        )
 
         plateau_amplitude = (
-            displacement[plateau_indices].max()
-            - displacement[plateau_indices].min()
+            displacement[start:end + 1].max()
+            - displacement[start:end + 1].min()
         )
 
         plateau_center = 0.5 * (theta[start] + theta[end])
-
         plateau_width = theta[end] - theta[start]
 
-    else:
+        # Make the plateau mask represent the selected plateau only.
+        selected_plateau = np.zeros_like(plateau, dtype=bool)
+        selected_plateau[start:end + 1] = True
+        plateau = selected_plateau
 
+    else:
         start = None
         end = None
-
         plateau_amplitude = stroke
         plateau_center = -999.0
         plateau_width = 0.0
 
     sign = np.sign(velocity)
 
-    sign_change = np.where(sign[:-1] * sign[1:] < 0)[0] + 1
+    non_zero = sign != 0.0
+    non_zero_indices = np.flatnonzero(non_zero)
+
+    if len(non_zero_indices) >= 2:
+        previous = sign[non_zero_indices[:-1]]
+        current = sign[non_zero_indices[1:]]
+
+        sign_change = non_zero_indices[1:][previous * current < 0.0]
+    else:
+        sign_change = np.array([], dtype=int)
 
     return {
         "theta": theta,
