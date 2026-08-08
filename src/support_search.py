@@ -18,13 +18,13 @@ def generate_candidates(mechanism, config):
 
     candidates = []
 
-    candidates.extend(_generate_E_candidates(mechanism))
-    candidates.extend(_generate_F_candidates(mechanism))
+    candidates.extend(_generate_E_candidates(mechanism, config))
+    candidates.extend(_generate_F_candidates(mechanism, config))
 
     return candidates
 
 
-def _generate_E_candidates(mechanism):
+def _generate_E_candidates(mechanism, config):
 
     radius = mechanism.rocker
 
@@ -51,7 +51,7 @@ def _generate_E_candidates(mechanism):
 # File: support_search.py (part 2/4)
 # =========================
 
-def _generate_F_candidates(mechanism):
+def _generate_F_candidates(mechanism, config):
 
     radius = config.support_F_radius_factor * mechanism.coupler
     step = config.support_F_grid_step_factor * mechanism.coupler
