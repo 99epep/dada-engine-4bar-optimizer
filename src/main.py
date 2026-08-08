@@ -7,6 +7,7 @@ from optimizer import (
     optimize_with_statistics,
     print_statistics,
 )
+from result_io import save_results
 
 
 def print_solutions(title, solutions):
@@ -53,6 +54,16 @@ def main() -> None:
     )
 
     print_statistics(stats)
+
+    output_file = save_results(
+        solutions_E,
+        solutions_F,
+        stats,
+        "results.npz",
+    )
+
+    print()
+    print(f"Résultats sauvegardés : {output_file}")
 
     print_solutions(
         "MEILLEURES SOLUTIONS E",
