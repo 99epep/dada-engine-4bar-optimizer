@@ -65,6 +65,7 @@ def optimize(config):
                 mechanism=mechanism,
                 support=support,
                 curve=curve,
+                score_components=result.score_components,
             )
 
             _push_solution(
@@ -183,6 +184,7 @@ def optimize_with_statistics(config):
                     mechanism=mechanism,
                     support=support,
                     curve=curve,
+                    score_components=result.score_components,
                 ),
                 config.max_solutions,
             )

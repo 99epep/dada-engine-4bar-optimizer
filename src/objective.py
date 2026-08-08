@@ -40,10 +40,13 @@ def evaluate_candidate(curve, config):
             reject_reason=reason,
         )
 
+    score = _score(metrics, config)
+
     return CandidateResult(
         accepted=True,
-        score=_score(metrics, config),
+        score=score,
         reject_reason=None,
+        score_components=metrics.get("score_components", {}),
     )
 
 
@@ -266,102 +269,159 @@ def _filter_2(metrics, config):
 # Scoring helpers
 # ---------------------------------------------------------------------
 
-def _normalized_error(value, tolerance):
+def _angular_distance(a, b):
+    return abs((a - b + 180.0) % 360.0 - 180.0)
 
+
+def _normalized_error(value, tolerance):
     if tolerance <= 0.0:
         return 0.0
-
-    score = 1.0 - value / tolerance
-
-    return float(np.clip(score, 0.0, 1.0))
+    return float(np.clip(1.0 - value / tolerance, 0.0, 1.0))
 
 
 def _plateau_quality(metrics):
-
-    ratio = (
-        metrics["plateau_amplitude"]
-        / metrics["stroke"]
-    )
-
+    ratio = metrics["plateau_amplitude"] / metrics["stroke"]
     return _normalized_error(ratio, 0.10)
 
 
 def _rapid_center_quality(metrics):
+    """
+    The rapid phase is the quarter-turn immediately following
+    the immobile quarter-turn.
 
+    For a plateau centered at 90°, the rapid phase is centered at 180°.
+    For a plateau centered at 270°, the rapid phase is centered at 0°.
+    """
     center = metrics["plateau_center"]
 
-    e90 = abs(center - 90.0)
-    e270 = abs(center - 270.0)
-
-    error = min(e90, e270)
-
-    return _normalized_error(error, 20.0)
-
-
-def _rapid_plateau_quality(metrics):
-
-    width = metrics["plateau_width"]
-
-    if width < 45.0:
-        return width / 45.0
-
-    if width > 110.0:
-        return max(0.0, 1.0 - (width - 110.0) / 45.0)
-
-    optimum = 77.5
-
-    error = abs(width - optimum)
-
-    return _normalized_error(error, 32.5)
-
-
-def _slow_plateau_quality(metrics):
-
-    velocity = metrics["velocity"]
-
-    plateau = metrics["plateau_mask"]
-
-    moving = velocity[~plateau]
-
-    if len(moving) == 0:
+    if center < 0.0:
         return 0.0
 
-    reference = np.mean(np.abs(moving))
-
-    spread = np.std(np.abs(moving))
-
-    if reference == 0.0:
+    if _angular_distance(center, 90.0) <= 20.0:
+        target = 180.0
+    elif _angular_distance(center, 270.0) <= 20.0:
+        target = 0.0
+    else:
         return 0.0
 
     return _normalized_error(
-        spread / reference,
-        1.0,
+        _angular_distance(center + 90.0, target),
+        20.0,
     )
 
-# =========================
-# File: objective.py (part 3/3)
-# =========================
 
-# ---------------------------------------------------------------------
-# Global score
-# ---------------------------------------------------------------------
+def _rapid_plateau_quality(metrics):
+    """
+    Quality of the rapid transition.
+
+    We want a sharp transition into the rapid phase and therefore
+    favour a rapid-phase width close to one quarter-turn.
+    """
+    theta = metrics["theta"]
+    velocity = metrics["velocity"]
+    start = metrics["plateau_start"]
+    end = metrics["plateau_end"]
+
+    if start is None or end is None:
+        return 0.0
+
+    # Determine the direction immediately after the immobile plateau.
+    after_index = min(end + 1, len(velocity) - 1)
+    direction = np.sign(velocity[after_index])
+
+    if direction == 0.0:
+        return 0.0
+
+    # Find the end of the same-sign rapid phase.
+    i = after_index
+
+    while i + 1 < len(velocity):
+        if np.sign(velocity[i + 1]) != direction:
+            break
+        i += 1
+
+    width = theta[i] - theta[after_index]
+
+    # Ideal rapid phase = 90°.
+    return _normalized_error(abs(width - 90.0), 45.0)
+
+
+def _slow_plateau_quality(metrics):
+    """
+    Compare the rapid quarter-turn with the following slow half-turn.
+
+    The analysis is performed in an angular coordinate system centred
+    on the detected immobile plateau, so 90° and 270° cases are treated
+    identically.
+
+    Ideal velocity magnitudes:
+        rapid = 1
+        slow  = 0.5
+    """
+    theta = metrics["theta"]
+    velocity = metrics["velocity"]
+    start = metrics["plateau_start"]
+    end = metrics["plateau_end"]
+
+    if start is None or end is None:
+        return 0.0
+
+    center = metrics["plateau_center"]
+
+    # Signed angular distance from the plateau centre.
+    relative = (theta - center + 180.0) % 360.0 - 180.0
+
+    # The rapid phase occupies the first quarter-turn after
+    # the immobile quarter-turn.
+    rapid_mask = (
+        (relative >= 45.0)
+        & (relative < 135.0)
+    )
+
+    # The slow phase occupies the following half-turn.
+    slow_mask = (
+        (relative >= 135.0)
+        & (relative < 315.0)
+    )
+
+    rapid = np.abs(velocity[rapid_mask])
+    slow = np.abs(velocity[slow_mask])
+
+    if len(rapid) == 0 or len(slow) == 0:
+        return 0.0
+
+    rapid_mean = np.mean(rapid)
+    slow_mean = np.mean(slow)
+
+    if rapid_mean <= 0.0:
+        return 0.0
+
+    ratio = slow_mean / rapid_mean
+
+    return _normalized_error(abs(ratio - 0.5), 0.5)
+
 
 def _score(metrics, config):
-
     fast_score = _rapid_plateau_quality(metrics)
-
     slow_score = _slow_plateau_quality(metrics)
-
     center_score = _rapid_center_quality(metrics)
+    static_score = _plateau_quality(metrics)
 
-    plateau_score = _plateau_quality(metrics)
-
-    return (
+    score = (
         config.weight_fast_plateau * fast_score
         + config.weight_slow_plateau * slow_score
         + config.weight_fast_center * center_score
-        + config.weight_static_plateau * plateau_score
+        + config.weight_static_plateau * static_score
     )
+
+    metrics["score_components"] = {
+        "fast": fast_score,
+        "slow": slow_score,
+        "center": center_score,
+        "static": static_score,
+    }
+
+    return score
 
 
 __all__ = [

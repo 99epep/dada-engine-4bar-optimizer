@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
@@ -93,6 +93,8 @@ class CandidateResult:
 
     reject_reason: Optional[str]
 
+    score_components: dict[str, float] = field(default_factory=dict)
+
 # =========================
 # File: models.py (part 3/3)
 # =========================
@@ -110,6 +112,8 @@ class Solution:
     support: Support
 
     curve: CandidateCurve
+
+    score_components: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

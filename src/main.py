@@ -19,10 +19,16 @@ def main() -> None:
     print("=" * 60)
 
     for i, solution in enumerate(solutions, start=1):
+        components = getattr(solution, "score_components", {})
+
         print(
             f"{i:3d} | "
             f"score={solution.score:.6f} | "
-            f"support={solution.support.kind.value}"
+            f"support={solution.support.kind.value} | "
+            f"fast={components.get('fast', 0.0):.3f} | "
+            f"slow={components.get('slow', 0.0):.3f} | "
+            f"center={components.get('center', 0.0):.3f} | "
+            f"static={components.get('static', 0.0):.3f}"
         )
 
 
