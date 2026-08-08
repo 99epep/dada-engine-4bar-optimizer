@@ -15,14 +15,14 @@ def optimize(config):
     """
     Global optimization loop.
 
-    Returns
-    -------
-    list[Solution]
+    Keeps independent rankings for E and F so that the best
+    candidate of each support family is always preserved.
     """
 
     stats = SearchStatistics()
 
-    best = []
+    best_E = []
+    best_F = []
 
     for mechanism in generate_mechanisms(config):
 
@@ -68,22 +68,24 @@ def optimize(config):
                 score_components=result.score_components,
             )
 
-            _push_solution(
-                best,
-                solution,
-                config.max_solutions,
-            )
+            if support.kind.value == "E":
+                _push_solution(
+                    best_E,
+                    solution,
+                    config.max_solutions,
+                )
+            else:
+                _push_solution(
+                    best_F,
+                    solution,
+                    config.max_solutions,
+                )
 
-    best.sort(
-        key=lambda s: s.score,
-        reverse=True,
+    return (
+        best_solutions(best_E),
+        best_solutions(best_F),
     )
 
-    return best
-
-# =========================
-# File: optimizer.py (part 2/5)
-# =========================
 
 def _push_solution(heap, solution, maximum):
     """
@@ -133,13 +135,14 @@ def best_solutions(heap):
 
 def optimize_with_statistics(config):
     """
-    Same optimization loop as optimize(), but also returns execution
-    statistics for diagnostics and tuning.
+    Same optimization loop as optimize(), with independent E/F
+    rankings and execution statistics.
     """
 
     stats = SearchStatistics()
 
-    best = []
+    best_E = []
+    best_F = []
 
     for mechanism in generate_mechanisms(config):
 
@@ -177,26 +180,33 @@ def optimize_with_statistics(config):
 
             stats.accepted += 1
 
-            _push_solution(
-                best,
-                Solution(
-                    score=result.score,
-                    mechanism=mechanism,
-                    support=support,
-                    curve=curve,
-                    score_components=result.score_components,
-                ),
-                config.max_solutions,
+            solution = Solution(
+                score=result.score,
+                mechanism=mechanism,
+                support=support,
+                curve=curve,
+                score_components=result.score_components,
             )
 
+            if support.kind.value == "E":
+                _push_solution(
+                    best_E,
+                    solution,
+                    config.max_solutions,
+                )
+            else:
+                _push_solution(
+                    best_F,
+                    solution,
+                    config.max_solutions,
+                )
+
     return (
-        best_solutions(best),
+        best_solutions(best_E),
+        best_solutions(best_F),
         stats,
     )
 
-# =========================
-# File: optimizer.py (part 4/5)
-# =========================
 
 def print_statistics(stats):
     """
