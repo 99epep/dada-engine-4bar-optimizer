@@ -1,8 +1,9 @@
 # =========================
-# File: config.py (part 1/2)
+# File: config.py
+# TEST V0.1 — quelques secondes
 # =========================
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 
 
@@ -10,30 +11,41 @@ import numpy as np
 class SolverConfig:
 
     # --------------------------------------------------
-    # Crank sampling
+    # Cinématique
     # --------------------------------------------------
 
     angle_start_deg: float = 0.0
     angle_end_deg: float = 360.0
-    angle_step_deg: float = 1.0
+    angle_step_deg: float = 5.0
 
     # --------------------------------------------------
-    # Mechanism search space
+    # Petit espace de recherche de test
     # --------------------------------------------------
 
-    ground_lengths: np.ndarray = np.arange(20.0, 101.0, 5.0)
-    crank_lengths: np.ndarray = np.arange(10.0, 61.0, 5.0)
-    coupler_lengths: np.ndarray = np.arange(20.0, 121.0, 5.0)
-    rocker_lengths: np.ndarray = np.arange(20.0, 121.0, 5.0)
+    ground_lengths: np.ndarray = field(
+        default_factory=lambda: np.arange(160.0, 201.0, 20.0)
+    )
+
+    crank_lengths: np.ndarray = field(
+        default_factory=lambda: np.arange(80.0, 121.0, 20.0)
+    )
+
+    coupler_lengths: np.ndarray = field(
+        default_factory=lambda: np.arange(160.0, 201.0, 20.0)
+    )
+
+    rocker_lengths: np.ndarray = field(
+        default_factory=lambda: np.arange(160.0, 201.0, 20.0)
+    )
 
     # --------------------------------------------------
-    # Number of retained solutions
+    # Solutions
     # --------------------------------------------------
 
-    max_solutions: int = 500
+    max_solutions: int = 20
 
     # --------------------------------------------------
-    # Filter 1
+    # Filtre 1
     # --------------------------------------------------
 
     plateau_max_amplitude_ratio: float = 0.10
@@ -46,10 +58,10 @@ class SolverConfig:
     plateau_max_width_deg: float = 110.0
 
     # --------------------------------------------------
-    # Filter 2
+    # Filtre 2
     # --------------------------------------------------
 
-    bisector_targets_deg = (
+    bisector_targets_deg: tuple = (
         0.0,
         180.0,
     )
@@ -57,7 +69,7 @@ class SolverConfig:
     bisector_tolerance_deg: float = 15.0
 
     # --------------------------------------------------
-    # Filter 3 weights
+    # Filtre 3
     # --------------------------------------------------
 
     weight_fast_plateau: float = 0.25
@@ -65,18 +77,8 @@ class SolverConfig:
     weight_fast_center: float = 0.35
     weight_static_plateau: float = 0.15
 
-# =========================
-# File: config.py (part 2/2)
-# =========================
-
     # --------------------------------------------------
-    # Numerical tolerances
-    # --------------------------------------------------
-
-    epsilon: float = 1e-12
-
-    # --------------------------------------------------
-    # Support search
+    # Recherche des supports
     # --------------------------------------------------
 
     support_E_step_deg: float = 5.0
@@ -84,11 +86,11 @@ class SolverConfig:
     support_F_grid_step_factor: float = 0.10
 
     # --------------------------------------------------
-    # Miscellaneous
+    # Divers
     # --------------------------------------------------
 
+    epsilon: float = 1e-12
     random_seed: int | None = None
-
     verbose: bool = True
 
 

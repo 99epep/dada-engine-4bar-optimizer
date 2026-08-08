@@ -3,13 +3,15 @@
 # =========================
 
 from config import SolverConfig
-from optimizer import optimize
+from optimizer import optimize_with_statistics, print_statistics
 
 
 def main() -> None:
     config = SolverConfig()
 
-    solutions = optimize(config)
+    solutions, stats = optimize_with_statistics(config)
+
+    print_statistics(stats)
 
     print()
     print("=" * 60)
