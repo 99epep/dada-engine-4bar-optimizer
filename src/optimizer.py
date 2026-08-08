@@ -82,8 +82,14 @@ def optimize(config):
                 )
 
     return (
-        best_solutions(best_E),
-        best_solutions(best_F),
+        _filter_geometrically_close(
+            best_solutions(best_E),
+            config,
+        ),
+        _filter_geometrically_close(
+            best_solutions(best_F),
+            config,
+        ),
     )
 
 
@@ -202,10 +208,81 @@ def optimize_with_statistics(config):
                 )
 
     return (
-        best_solutions(best_E),
-        best_solutions(best_F),
+        _filter_geometrically_close(
+            best_solutions(best_E),
+            config,
+        ),
+        _filter_geometrically_close(
+            best_solutions(best_F),
+            config,
+        ),
         stats,
     )
+
+
+def _filter_geometrically_close(solutions, config):
+    """
+    Remove geometrically redundant solutions.
+
+    Solutions are already sorted from best to worst.
+    Therefore the first solution kept for a given geometric
+    neighbourhood is necessarily the best-scoring one.
+
+    Two mechanisms are considered geometrically close when all
+    four principal lengths differ by no more than the configured
+    tolerance:
+
+        ground
+        crank
+        coupler
+        rocker
+    """
+
+    if not solutions:
+        return []
+
+    tolerance = config.geometry_proximity_mm
+
+    kept = []
+
+    for solution in solutions:
+
+        mechanism = solution.mechanism
+
+        is_close = False
+
+        for existing in kept:
+
+            other = existing.mechanism
+
+            if (
+                abs(
+                    mechanism.ground
+                    - other.ground
+                ) <= tolerance
+                and
+                abs(
+                    mechanism.crank
+                    - other.crank
+                ) <= tolerance
+                and
+                abs(
+                    mechanism.coupler
+                    - other.coupler
+                ) <= tolerance
+                and
+                abs(
+                    mechanism.rocker
+                    - other.rocker
+                ) <= tolerance
+            ):
+                is_close = True
+                break
+
+        if not is_close:
+            kept.append(solution)
+
+    return kept
 
 
 def print_statistics(stats):

@@ -22,19 +22,19 @@ class SolverConfig:
     # --------------------------------------------------
 
     ground_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(160.0, 201.0, 20.0)
+        default_factory=lambda: np.arange(160.0, 201.0, 40.0)
     )
 
     crank_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(80.0, 121.0, 20.0)
+        default_factory=lambda: np.arange(80.0, 121.0, 40.0)
     )
 
     coupler_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(160.0, 201.0, 20.0)
+        default_factory=lambda: np.arange(160.0, 201.0, 40.0)
     )
 
     rocker_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(160.0, 201.0, 20.0)
+        default_factory=lambda: np.arange(160.0, 201.0, 40.0)
     )
 
     # --------------------------------------------------
@@ -82,9 +82,15 @@ class SolverConfig:
     # Recherche des supports
     # --------------------------------------------------
 
-    support_E_step_deg: float = 5.0
+    support_E_step_deg: float = 10.0
     support_F_radius_factor: float = 2.0
-    support_F_grid_step_factor: float = 0.10
+    support_F_grid_step_factor: float = 0.20
+
+    # --------------------------------------------------
+    # Déduplication géométrique des résultats
+    # --------------------------------------------------
+
+    geometry_proximity_mm: float = 10.0
 
     # --------------------------------------------------
     # Divers

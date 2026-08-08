@@ -30,7 +30,7 @@ def _generate_E_candidates(mechanism):
 
     candidates = []
 
-    for angle_deg in range(0, 180, 5):
+    for angle_deg in range(0, 180, 10):
 
         angle = math.radians(angle_deg)
 
@@ -54,7 +54,7 @@ def _generate_E_candidates(mechanism):
 def _generate_F_candidates(mechanism):
 
     radius = 2.0 * mechanism.coupler
-    step = 0.10 * mechanism.coupler
+    step = 0.20 * mechanism.coupler
 
     candidates = []
 
@@ -132,7 +132,7 @@ def _build_E_curve(kinematics, support):
     x = points[:, 0]
     y = points[:, 1]
 
-    displacement = y - y[0]
+    displacement = x - x[0]
     velocity = __import__("numpy").gradient(
         displacement,
         kinematics.theta,
@@ -156,7 +156,7 @@ def _build_F_curve(kinematics, support):
     x = points[:, 0]
     y = points[:, 1]
 
-    displacement = y - y[0]
+    displacement = x - x[0]
     velocity = __import__("numpy").gradient(
         displacement,
         kinematics.theta,
