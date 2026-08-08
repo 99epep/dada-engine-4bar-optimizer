@@ -21,20 +21,21 @@ class SolverConfig:
     # Espace de recherche
     # --------------------------------------------------
 
-    ground_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(120.0, 241.0, 40.0)
-    )
+    # Bâti AD fixé.
+    ground_length: float = 100.0
 
+    # Manivelle AB.
     crank_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(60.0, 141.0, 20.0)
+        default_factory=lambda: np.arange(45.0, 96.0, 10.0)
     )
 
+    # Bielle BC et culbuteur CD.
     coupler_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(120.0, 241.0, 40.0)
+        default_factory=lambda: np.arange(100.0, 221.0, 40.0)
     )
 
     rocker_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(120.0, 241.0, 40.0)
+        default_factory=lambda: np.arange(100.0, 221.0, 40.0)
     )
 
     # --------------------------------------------------

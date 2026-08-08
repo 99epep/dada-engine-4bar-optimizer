@@ -26,6 +26,15 @@ def optimize(config):
 
     for mechanism in generate_mechanisms(config):
 
+        # --------------------------------------------------
+        # Grashof : rejet immédiat des mécanismes qui ne
+        # peuvent pas être des crank-rockers.
+        # --------------------------------------------------
+
+        if not is_grashof_crank_rocker(mechanism):
+            stats.grashof_rejected += 1
+            continue
+
         stats.mechanisms_tested += 1
 
         kinematics = solve(mechanism, config)
@@ -93,6 +102,37 @@ def optimize(config):
     )
 
 
+def is_grashof_crank_rocker(mechanism):
+    """
+    Return True when the four-bar mechanism satisfies Grashof's
+    condition with the crank AB selected as the shortest link
+    candidate.
+
+    For a crank-rocker:
+
+        shortest + longest <= the other two links
+
+    The fixed link AD is included in the four-link comparison.
+    """
+
+    lengths = (
+        mechanism.ground,
+        mechanism.crank,
+        mechanism.coupler,
+        mechanism.rocker,
+    )
+
+    shortest = min(lengths)
+    longest = max(lengths)
+
+    remaining = sum(lengths) - shortest - longest
+
+    return (
+        shortest + longest
+        <= remaining
+    )
+
+
 def _push_solution(heap, solution, maximum):
     """
     Keep only the N best solutions.
@@ -151,6 +191,10 @@ def optimize_with_statistics(config):
     best_F = []
 
     for mechanism in generate_mechanisms(config):
+
+        if not is_grashof_crank_rocker(mechanism):
+            stats.grashof_rejected += 1
+            continue
 
         stats.mechanisms_tested += 1
 

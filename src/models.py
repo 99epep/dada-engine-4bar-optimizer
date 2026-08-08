@@ -123,6 +123,7 @@ class SearchStatistics:
     """
 
     mechanisms_tested: int = 0
+    grashof_rejected: int = 0
 
     supports_generated: int = 0
 
