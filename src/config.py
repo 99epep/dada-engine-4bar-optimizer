@@ -1,6 +1,5 @@
 # =========================
 # File: config.py
-# TEST V0.1 — quelques secondes
 # =========================
 
 from dataclasses import dataclass, field
@@ -19,7 +18,7 @@ class SolverConfig:
     angle_step_deg: float = 5.0
 
     # --------------------------------------------------
-    # Petit espace de recherche de test
+    # Espace de recherche
     # --------------------------------------------------
 
     ground_lengths: np.ndarray = field(
@@ -45,20 +44,25 @@ class SolverConfig:
     max_solutions: int = 20
 
     # --------------------------------------------------
-    # Filtre 1
+    # Filtre 1 : zone immobile
     # --------------------------------------------------
 
     plateau_max_amplitude_ratio: float = 0.10
 
     plateau_center_1_deg: float = 90.0
     plateau_center_2_deg: float = 270.0
-    plateau_center_tolerance_deg: float = 20.0
 
-    plateau_min_width_deg: float = 45.0
-    plateau_max_width_deg: float = 110.0
+    plateau_center_min_deg: float = 80.0
+    plateau_center_max_deg: float = 100.0
+
+    plateau_center_min_2_deg: float = 260.0
+    plateau_center_max_2_deg: float = 280.0
+
+    plateau_min_width_deg: float = 40.0
+    plateau_max_width_deg: float = 120.0
 
     # --------------------------------------------------
-    # Filtre 2
+    # Filtre 2 : phase rapide
     # --------------------------------------------------
 
     bisector_targets_deg: tuple = (
@@ -66,16 +70,13 @@ class SolverConfig:
         180.0,
     )
 
-    bisector_tolerance_deg: float = 15.0
+    bisector_tolerance_deg: float = 10.0
 
     # --------------------------------------------------
-    # Filtre 3
+    # Classement
     # --------------------------------------------------
 
-    weight_fast_plateau: float = 0.25
-    weight_slow_plateau: float = 0.25
-    weight_fast_center: float = 0.35
-    weight_static_plateau: float = 0.15
+    acceleration_exclusion_deg: float = 10.0
 
     # --------------------------------------------------
     # Recherche des supports

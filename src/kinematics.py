@@ -280,10 +280,10 @@ def build_candidate_curve(result, support):
     x = points[:, 0]
     y = points[:, 1]
 
-    # The pistons are parallel to the fixed AD axis.
-    # Their displacement is therefore the perpendicular coordinate,
-    # not the Euclidean distance travelled by the support point.
-    displacement = y - y[0]
+    # The piston axis is parallel to AD, i.e. to the fixed X axis.
+    # The quantity to evaluate is therefore the X projection of the
+    # support point.
+    displacement = x - x[0]
 
     velocity = np.gradient(
         displacement,
