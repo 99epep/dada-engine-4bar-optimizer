@@ -118,13 +118,13 @@ def _compute_metrics(curve, config):
 
 def _find_plateau_candidates(metrics, config):
     """
-    Find valid immobile portions around 90° or 270°.
+    Find the actual maximal immobile zones around 90° or 270°.
 
-    The angular grid is already coarse (normally 5°), so only
-    intervals whose midpoint can actually fall inside one of the
-    two allowed centre windows are examined.
+    The search is circular: a plateau may cross 0°/360°.
 
-    This avoids testing the large majority of impossible intervals.
+    A candidate is accepted only if it is a maximal contiguous
+    low-amplitude zone. This prevents a short valid sub-interval
+    from being extracted artificially from a much larger plateau.
     """
 
     theta = metrics["theta"]
@@ -135,10 +135,26 @@ def _find_plateau_candidates(metrics, config):
         config.plateau_max_amplitude_ratio * stroke
     )
 
-    candidates = []
-
-    # We only need actual sampled endpoints.
     n = len(theta)
+
+    if n < 3:
+        return []
+
+    step = float(theta[1] - theta[0])
+
+    # Duplicate one complete revolution so that zones crossing
+    # 360° can be treated exactly like ordinary intervals.
+    theta_ext = np.concatenate((
+        theta,
+        theta[1:] + 360.0,
+    ))
+
+    displacement_ext = np.concatenate((
+        displacement,
+        displacement[1:],
+    ))
+
+    candidates = []
 
     centre_windows = (
         (
@@ -155,41 +171,38 @@ def _find_plateau_candidates(metrics, config):
 
     for centre_min, centre_max, target in centre_windows:
 
-        for start in range(n - 1):
+        # Search every possible start in one revolution.
+        for start in range(n):
 
-            # For this A1, derive directly the only A2 values
-            # whose midpoint can lie inside the allowed centre window.
-            a1 = theta[start]
+            a1 = float(theta_ext[start])
 
-            end_min_angle = (
-                2.0 * centre_min - a1
-            )
-            end_max_angle = (
-                2.0 * centre_max - a1
-            )
+            # A2 must produce a centre inside the target window.
+            end_min_angle = 2.0 * centre_min - a1
+            end_max_angle = 2.0 * centre_max - a1
 
-            end_start = int(
-                np.searchsorted(
-                    theta,
-                    end_min_angle,
-                    side="right",
-                )
-            )
+            end_start = int(np.searchsorted(
+                theta_ext,
+                end_min_angle,
+                side="left",
+            ))
 
-            end_stop = int(
-                np.searchsorted(
-                    theta,
-                    end_max_angle,
-                    side="left",
-                )
-            )
+            end_stop = int(np.searchsorted(
+                theta_ext,
+                end_max_angle,
+                side="right",
+            ))
 
             end_start = max(start + 1, end_start)
-            end_stop = min(n, end_stop)
+            end_stop = min(
+                end_stop,
+                start + n,
+            )
 
             for end in range(end_start, end_stop):
 
-                width = theta[end] - a1
+                width = (
+                    theta_ext[end] - a1
+                )
 
                 if width <= config.plateau_min_width_deg:
                     continue
@@ -197,42 +210,97 @@ def _find_plateau_candidates(metrics, config):
                 if width >= config.plateau_max_width_deg:
                     continue
 
+                values = displacement_ext[
+                    start:end + 1
+                ]
+
                 amplitude = (
-                    np.max(
-                        displacement[start:end + 1]
-                    )
-                    - np.min(
-                        displacement[start:end + 1]
-                    )
+                    np.max(values)
+                    - np.min(values)
                 )
 
                 if amplitude > amplitude_limit:
                     continue
 
+                # --------------------------------------------------
+                # Maximality test.
+                #
+                # If the preceding or following sampled point can
+                # be included without exceeding the amplitude
+                # tolerance, this is only a sub-interval of a
+                # larger plateau and must be rejected.
+                # --------------------------------------------------
+
+                if start > 0:
+                    previous_values = displacement_ext[
+                        start - 1:end + 1
+                    ]
+
+                    previous_amplitude = (
+                        np.max(previous_values)
+                        - np.min(previous_values)
+                    )
+
+                    if previous_amplitude <= amplitude_limit:
+                        continue
+
+                if end + 1 < len(displacement_ext):
+                    next_values = displacement_ext[
+                        start:end + 2
+                    ]
+
+                    next_amplitude = (
+                        np.max(next_values)
+                        - np.min(next_values)
+                    )
+
+                    if next_amplitude <= amplitude_limit:
+                        continue
+
                 centre = 0.5 * (
-                    a1 + theta[end]
+                    a1 + theta_ext[end]
                 )
 
                 candidates.append({
-                    "plateau_start": start,
-                    "plateau_end": end,
-                    "plateau_start_angle": a1,
-                    "plateau_end_angle": theta[end],
-                    "plateau_center": centre,
+                    "plateau_start": start % n,
+                    "plateau_end": end % n,
+                    "plateau_start_angle": a1 % 360.0,
+                    "plateau_end_angle": (
+                        theta_ext[end] % 360.0
+                    ),
+                    "plateau_center": centre % 360.0,
                     "plateau_width": width,
                     "plateau_amplitude": amplitude,
                     "plateau_center_target": target,
                 })
 
-    # Wider valid immobile zones are preferable as candidates for
-    # the subsequent filter. If several have the same width,
-    # prefer the one closest to its nominal centre.
+    # Remove possible duplicate representations of the same
+    # circular interval.
+    unique = {}
+
+    for candidate in candidates:
+
+        key = (
+            round(
+                candidate["plateau_start_angle"],
+                8,
+            ),
+            round(
+                candidate["plateau_end_angle"],
+                8,
+            ),
+        )
+
+        unique[key] = candidate
+
+    candidates = list(unique.values())
+
     candidates.sort(
         key=lambda p: (
             -p["plateau_width"],
-            abs(
-                p["plateau_center"]
-                - p["plateau_center_target"]
+            _angular_distance(
+                p["plateau_center"],
+                p["plateau_center_target"],
             ),
         )
     )
