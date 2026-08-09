@@ -182,6 +182,9 @@ def plot_solution(
         )
 
     ax_position.set_xlim(0.0, 360.0)
+    ax_position.set_xticks(
+        np.arange(0.0, 361.0, 45.0)
+    )
     ax_position.set_ylim(0.0, 1.0)
     ax_position.margins(x=0.01)
 
