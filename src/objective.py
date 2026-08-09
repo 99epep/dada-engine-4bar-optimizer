@@ -67,6 +67,11 @@ def evaluate_candidate(curve, config):
 
     best_metrics["score_components"] = {
         "mean_abs_acceleration": best_acceleration,
+        "plateau_start_angle": best_metrics["plateau_start_angle"],
+        "plateau_end_angle": best_metrics["plateau_end_angle"],
+        "a3_angle": best_metrics["a3_angle"],
+        "ai_angle": best_metrics["ai_angle"],
+        "bisector_angle": best_metrics["bisector_angle"],
     }
 
     return CandidateResult(

@@ -26,7 +26,7 @@ class SolverConfig:
 
     # Manivelle AB.
     crank_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(45.0, 96.0, 10.0)
+        default_factory=lambda: np.arange(25.0, 76.0, 10.0)
     )
 
     # Bielle BC et culbuteur CD.

@@ -167,20 +167,23 @@ def plot_solution(
         ax_position.axvline(
             angle,
             linestyle="--",
+            linewidth=1.0,
         )
 
-        ax_position.text(
-            angle,
-            1.02,
+        ax_position.annotate(
             f"{label} = {angle:.0f}°",
+            xy=(angle, 1.0),
+            xycoords=("data", "axes fraction"),
+            xytext=(4, 5),
+            textcoords="offset points",
             rotation=90,
-            transform=ax_position.get_xaxis_transform(),
             va="bottom",
-            ha="right",
+            ha="left",
         )
 
     ax_position.set_xlim(0.0, 360.0)
     ax_position.set_ylim(0.0, 1.0)
+    ax_position.margins(x=0.01)
 
     ax_position.set_xlabel(
         "Angle de manivelle (°)"
