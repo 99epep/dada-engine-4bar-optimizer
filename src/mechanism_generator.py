@@ -12,12 +12,12 @@ def generate_mechanisms(config):
     Exhaustive generation of the mechanism design space.
     """
 
-    for ground, crank, coupler, rocker in itertools.product(
-        config.ground_lengths,
+    for crank, coupler, rocker in itertools.product(
         config.crank_lengths,
         config.coupler_lengths,
         config.rocker_lengths,
     ):
+        ground = config.ground_length
 
         if not _is_valid_lengths(
             ground,
@@ -69,8 +69,7 @@ def mechanism_count(config):
     """
 
     return (
-        len(config.ground_lengths)
-        * len(config.crank_lengths)
+        len(config.crank_lengths)
         * len(config.coupler_lengths)
         * len(config.rocker_lengths)
     )
