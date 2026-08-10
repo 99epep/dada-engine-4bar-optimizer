@@ -135,6 +135,7 @@ def _find_plateau_candidates(metrics, config):
 
     theta = metrics["theta"]
     displacement = metrics["displacement"]
+    velocity = metrics["velocity"]
     stroke = metrics["stroke"]
 
     n = len(theta)
@@ -316,6 +317,38 @@ def _find_plateau_candidates(metrics, config):
         )
 
         if amplitude > amplitude_limit:
+            continue
+
+        # ----------------------------------------------------------
+        # Un plateau doit correspondre à un seul extremum.
+        #
+        # Un rebond à l'intérieur de la zone crée plusieurs
+        # inversions de vitesse et invalide donc le plateau.
+        #
+        # Le test est cyclique et ignore les éventuels zéros
+        # numériques de la vitesse.
+        # ----------------------------------------------------------
+
+        candidate_indices = np.array([
+            i % n
+            for i in range(start, end + 1)
+        ])
+
+        candidate_velocity = velocity[candidate_indices]
+
+        signs = np.sign(candidate_velocity)
+
+        non_zero = signs != 0.0
+        signs = signs[non_zero]
+
+        if len(signs) < 2:
+            continue
+
+        sign_changes = np.count_nonzero(
+            signs[1:] != signs[:-1]
+        )
+
+        if sign_changes != 1:
             continue
 
         candidates.append({
