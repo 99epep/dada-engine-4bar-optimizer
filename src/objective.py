@@ -497,9 +497,19 @@ def _mean_abs_acceleration(metrics, config):
     if len(values) == 0:
         return float("inf")
 
-    return float(
+    mean_abs_acceleration = float(
         np.mean(values)
     )
+
+    # Normalise l'accélération par la course totale.
+    # L'angle reste exprimé en radians : aucune normalisation
+    # angulaire n'est appliquée.
+    stroke = metrics["stroke"]
+
+    if stroke <= config.epsilon:
+        return float("inf")
+
+    return mean_abs_acceleration / stroke
 
 
 # ---------------------------------------------------------------------
