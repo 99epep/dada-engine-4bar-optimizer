@@ -31,11 +31,14 @@ class SolverConfig:
 
     # Bielle BC et culbuteur CD.
     coupler_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(100.0, 221.0, 40.0)
+        default_factory=lambda: np.arange(100.0, 221.0, 20.0)
     )
 
     rocker_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(100.0, 221.0, 40.0)
+        default_factory=lambda: np.array(
+            [100.0, 110.0, 120.0, 130.0, 140.0,
+             160.0, 180.0, 200.0, 220.0]
+        )
     )
 
     # --------------------------------------------------
