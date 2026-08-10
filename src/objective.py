@@ -118,22 +118,24 @@ def _compute_metrics(curve, config):
 
 def _find_plateau_candidates(metrics, config):
     """
-    Find the actual maximal immobile zones around 90° or 270°.
+    Find immobile portions surrounding a genuine extremum of X.
 
-    The search is circular: a plateau may cross 0°/360°.
+    The angular domain is circular. A plateau may therefore cross
+    0°/360°.
 
-    A candidate is accepted only if it is a maximal contiguous
-    low-amplitude zone. This prevents a short valid sub-interval
-    from being extracted artificially from a much larger plateau.
+    The procedure is deliberately independent of the desired
+    plateau location:
+
+      1. find local maxima/minima of X cyclically;
+      2. around each extremum, find the largest contiguous zone
+         remaining within 10% of the total stroke;
+      3. measure its real A1/A2 boundaries;
+      4. only then test width and centering around 90° or 270°.
     """
 
     theta = metrics["theta"]
     displacement = metrics["displacement"]
     stroke = metrics["stroke"]
-
-    amplitude_limit = (
-        config.plateau_max_amplitude_ratio * stroke
-    )
 
     n = len(theta)
 
@@ -142,140 +144,196 @@ def _find_plateau_candidates(metrics, config):
 
     step = float(theta[1] - theta[0])
 
-    # Duplicate one complete revolution so that zones crossing
-    # 360° can be treated exactly like ordinary intervals.
-    theta_ext = np.concatenate((
-        theta,
-        theta[1:] + 360.0,
-    ))
+    amplitude_limit = (
+        config.plateau_max_amplitude_ratio * stroke
+    )
 
-    displacement_ext = np.concatenate((
-        displacement,
-        displacement[1:],
-    ))
+    # --------------------------------------------------------------
+    # Cyclic extrema.
+    #
+    # np.roll() makes the neighbours of 0° be 355° and 5°.
+    # --------------------------------------------------------------
+
+    previous = np.roll(displacement, 1)
+    following = np.roll(displacement, -1)
+
+    maxima = (
+        (displacement >= previous)
+        & (displacement >= following)
+        & (
+            (displacement > previous)
+            | (displacement > following)
+        )
+    )
+
+    minima = (
+        (displacement <= previous)
+        & (displacement <= following)
+        & (
+            (displacement < previous)
+            | (displacement < following)
+        )
+    )
+
+    extrema = np.flatnonzero(
+        maxima | minima
+    )
 
     candidates = []
 
-    centre_windows = (
-        (
-            config.plateau_center_min_deg,
-            config.plateau_center_max_deg,
-            90.0,
-        ),
-        (
-            config.plateau_center_min_2_deg,
-            config.plateau_center_max_2_deg,
-            270.0,
-        ),
-    )
+    for extremum in extrema:
 
-    for centre_min, centre_max, target in centre_windows:
+        extremum_value = displacement[extremum]
 
-        # Search every possible start in one revolution.
-        for start in range(n):
+        # ----------------------------------------------------------
+        # Points within 10% of the extremum.
+        #
+        # Since the extremum is a max or min, this directly defines
+        # a zone whose total X amplitude is <= 10% of the stroke.
+        # ----------------------------------------------------------
 
-            a1 = float(theta_ext[start])
-
-            # A2 must produce a centre inside the target window.
-            end_min_angle = 2.0 * centre_min - a1
-            end_max_angle = 2.0 * centre_max - a1
-
-            end_start = int(np.searchsorted(
-                theta_ext,
-                end_min_angle,
-                side="left",
-            ))
-
-            end_stop = int(np.searchsorted(
-                theta_ext,
-                end_max_angle,
-                side="right",
-            ))
-
-            end_start = max(start + 1, end_start)
-            end_stop = min(
-                end_stop,
-                start + n,
+        stable = (
+            np.abs(
+                displacement - extremum_value
             )
+            <= amplitude_limit
+        )
 
-            for end in range(end_start, end_stop):
+        if not stable[extremum]:
+            continue
 
-                width = (
-                    theta_ext[end] - a1
-                )
+        # ----------------------------------------------------------
+        # Expand cyclically from the extremum.
+        # ----------------------------------------------------------
 
-                if width <= config.plateau_min_width_deg:
-                    continue
+        start = extremum
+        end = extremum
 
-                if width >= config.plateau_max_width_deg:
-                    continue
+        for _ in range(n - 1):
+            previous_index = (
+                start - 1
+            ) % n
 
-                values = displacement_ext[
-                    start:end + 1
-                ]
+            if not stable[previous_index]:
+                break
 
-                amplitude = (
-                    np.max(values)
-                    - np.min(values)
-                )
+            start -= 1
 
-                if amplitude > amplitude_limit:
-                    continue
+        for _ in range(n - 1):
+            next_index = (
+                end + 1
+            ) % n
 
-                # --------------------------------------------------
-                # Maximality test.
-                #
-                # If the preceding or following sampled point can
-                # be included without exceeding the amplitude
-                # tolerance, this is only a sub-interval of a
-                # larger plateau and must be rejected.
-                # --------------------------------------------------
+            if not stable[next_index]:
+                break
 
-                if start > 0:
-                    previous_values = displacement_ext[
-                        start - 1:end + 1
-                    ]
+            end += 1
 
-                    previous_amplitude = (
-                        np.max(previous_values)
-                        - np.min(previous_values)
-                    )
+        count = end - start + 1
 
-                    if previous_amplitude <= amplitude_limit:
-                        continue
+        if count >= n:
+            continue
 
-                if end + 1 < len(displacement_ext):
-                    next_values = displacement_ext[
-                        start:end + 2
-                    ]
+        width = (
+            (count - 1) * step
+        )
 
-                    next_amplitude = (
-                        np.max(next_values)
-                        - np.min(next_values)
-                    )
+        if (
+            width <= config.plateau_min_width_deg
+            or width >= config.plateau_max_width_deg
+        ):
+            continue
 
-                    if next_amplitude <= amplitude_limit:
-                        continue
+        # ----------------------------------------------------------
+        # Convert the unwrapped indices back to angles.
+        #
+        # This is what makes e.g. 340° -> 120° a single plateau.
+        # ----------------------------------------------------------
 
-                centre = 0.5 * (
-                    a1 + theta_ext[end]
-                )
+        a1 = (
+            theta[start % n]
+            + 360.0 * np.floor(start / n)
+        )
 
-                candidates.append({
-                    "plateau_start": start % n,
-                    "plateau_end": end % n,
-                    "plateau_start_angle": a1 % 360.0,
-                    "plateau_end_angle": (
-                        theta_ext[end] % 360.0
-                    ),
-                    "plateau_center": centre % 360.0,
-                    "plateau_width": width,
-                    "plateau_amplitude": amplitude,
-                    "plateau_center_target": target,
-                })
+        a2 = (
+            theta[end % n]
+            + 360.0 * np.floor(end / n)
+        )
 
-    # Remove possible duplicate representations of the same
-    # circular interval.
+        centre = (
+            0.5 * (a1 + a2)
+        ) % 360.0
+
+        # ----------------------------------------------------------
+        # The plateau must be centred on an extremum of the
+        # projection: 90° or 270° ±10°.
+        # ----------------------------------------------------------
+
+        distance_90 = _angular_distance(
+            centre,
+            config.plateau_center_1_deg,
+        )
+
+        distance_270 = _angular_distance(
+            centre,
+            config.plateau_center_2_deg,
+        )
+
+        if (
+            distance_90
+            <= (
+                config.plateau_center_max_deg
+                - config.plateau_center_1_deg
+            )
+        ):
+            target = 90.0
+
+        elif (
+            distance_270
+            <= (
+                config.plateau_center_max_2_deg
+                - config.plateau_center_2_deg
+            )
+        ):
+            target = 270.0
+
+        else:
+            continue
+
+        # ----------------------------------------------------------
+        # Exact amplitude of the resulting circular zone.
+        # This remains the authoritative 10% criterion.
+        # ----------------------------------------------------------
+
+        values = np.array([
+            displacement[i % n]
+            for i in range(start, end + 1)
+        ])
+
+        amplitude = (
+            np.max(values)
+            - np.min(values)
+        )
+
+        if amplitude > amplitude_limit:
+            continue
+
+        candidates.append({
+            "plateau_start": start % n,
+            "plateau_end": end % n,
+            "plateau_start_angle": a1 % 360.0,
+            "plateau_end_angle": a2 % 360.0,
+            "plateau_center": centre,
+            "plateau_width": width,
+            "plateau_amplitude": amplitude,
+            "plateau_center_target": target,
+        })
+
+    # --------------------------------------------------------------
+    # Several sampled points may belong to the same flat extremum.
+    # Keep one representation of each plateau.
+    # --------------------------------------------------------------
+
     unique = {}
 
     for candidate in candidates:
@@ -293,7 +351,9 @@ def _find_plateau_candidates(metrics, config):
 
         unique[key] = candidate
 
-    candidates = list(unique.values())
+    candidates = list(
+        unique.values()
+    )
 
     candidates.sort(
         key=lambda p: (
