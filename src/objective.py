@@ -142,7 +142,9 @@ def _find_plateau_candidates(metrics, config):
 
     step = float(theta[1] - theta[0])
 
-    amplitude_limit = 0.05 * stroke
+    amplitude_limit = (
+        config.plateau_max_amplitude_ratio * stroke
+    )
 
     # Les plateaux recherchés doivent être situés sur un extremum
     # de la course de X : maximum global ou minimum global.
@@ -199,7 +201,7 @@ def _find_plateau_candidates(metrics, config):
         width = (end - start) * step
 
         if (
-            width < 60.0
+            width < config.plateau_min_width_deg
             or width >= config.plateau_max_width_deg
         ):
             continue
@@ -520,14 +522,20 @@ def _mean_abs_acceleration(metrics, config):
             (theta - angle + 180.0) % 360.0 - 180.0
         )
 
-        keep &= distance > 5.0
+        keep &= (
+            distance
+            > config.acceleration_exclusion_deg
+        )
 
     # For the remaining phases, exclude 5° around A3.
     distance_a3 = np.abs(
         (theta - a3 + 180.0) % 360.0 - 180.0
     )
 
-    keep &= distance_a3 > 5.0
+    keep &= (
+        distance_a3
+        > config.acceleration_exclusion_deg
+    )
 
     # --------------------------------------------------------------
     # Acceleration used for the score.

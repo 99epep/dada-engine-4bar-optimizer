@@ -51,7 +51,7 @@ class SolverConfig:
     # Filtre 1 : zone immobile
     # --------------------------------------------------
 
-    plateau_max_amplitude_ratio: float = 0.10
+    plateau_max_amplitude_ratio: float = 0.05
 
     plateau_center_1_deg: float = 90.0
     plateau_center_2_deg: float = 270.0
@@ -62,7 +62,7 @@ class SolverConfig:
     plateau_center_min_2_deg: float = 260.0
     plateau_center_max_2_deg: float = 280.0
 
-    plateau_min_width_deg: float = 40.0
+    plateau_min_width_deg: float = 60.0
     plateau_max_width_deg: float = 120.0
 
     # --------------------------------------------------
@@ -80,7 +80,7 @@ class SolverConfig:
     # Classement
     # --------------------------------------------------
 
-    acceleration_exclusion_deg: float = 10.0
+    acceleration_exclusion_deg: float = 5.0
 
     # --------------------------------------------------
     # Recherche des supports
