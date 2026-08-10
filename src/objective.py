@@ -9,15 +9,20 @@ from models import CandidateResult
 
 def evaluate_candidate(curve, config):
     """
-    Evaluate one candidate using the current kinematic criteria.
+    Evaluate one candidate.
 
-    The evaluation is performed exclusively on the X projection
-    represented by curve.displacement and curve.velocity.
+    The filters determine the valid geometry.
+    The score measures the RMS deviation of the real displacement
+    curve from the ideal piecewise-linear displacement law defined
+    by A3 and the plateau geometry.
     """
 
     metrics = _compute_metrics(curve, config)
 
-    plateau_candidates = _find_plateau_candidates(metrics, config)
+    plateau_candidates = _find_plateau_candidates(
+        metrics,
+        config,
+    )
 
     if not plateau_candidates:
         return CandidateResult(
@@ -26,29 +31,32 @@ def evaluate_candidate(curve, config):
             reject_reason="plateau",
         )
 
+    best_score = None
     best_metrics = None
-    best_acceleration = None
 
     for plateau in plateau_candidates:
 
         candidate = dict(metrics)
         candidate.update(plateau)
 
-        ok, reason = _filter_2(candidate, config)
+        ok, reason = _filter_2(
+            candidate,
+            config,
+        )
 
         if not ok:
             continue
 
-        mean_abs_acceleration = _mean_abs_acceleration(
+        deviation = _curve_deviation(
             candidate,
             config,
         )
 
         if (
-            best_acceleration is None
-            or mean_abs_acceleration < best_acceleration
+            best_score is None
+            or deviation < best_score
         ):
-            best_acceleration = mean_abs_acceleration
+            best_score = deviation
             best_metrics = candidate
 
     if best_metrics is None:
@@ -58,27 +66,32 @@ def evaluate_candidate(curve, config):
             reject_reason="bisector",
         )
 
-    # The optimizer keeps the largest score.
-    # This is only a monotonic transformation of the real criterion:
-    # smaller mean absolute acceleration = better solution.
+    # Smaller deviation = better solution.
     score = 1.0 / (
-        best_acceleration + config.epsilon
+        best_score + config.epsilon
     )
 
     best_metrics["score_components"] = {
-        "mean_abs_acceleration": best_acceleration,
-        "plateau_start_angle": best_metrics["plateau_start_angle"],
-        "plateau_end_angle": best_metrics["plateau_end_angle"],
-        "a3_angle": best_metrics["a3_angle"],
-        "ai_angle": best_metrics["ai_angle"],
-        "bisector_angle": best_metrics["bisector_angle"],
+        "curve_deviation": best_score,
+        "plateau_start_angle":
+            best_metrics["plateau_start_angle"],
+        "plateau_end_angle":
+            best_metrics["plateau_end_angle"],
+        "a3_angle":
+            best_metrics["a3_angle"],
+        "ai_angle":
+            best_metrics["ai_angle"],
+        "bisector_angle":
+            best_metrics["bisector_angle"],
     }
 
     return CandidateResult(
         accepted=True,
         score=score,
         reject_reason=None,
-        score_components=best_metrics["score_components"],
+        score_components=best_metrics[
+            "score_components"
+        ],
     )
 
 
@@ -92,22 +105,17 @@ def _compute_metrics(curve, config):
     velocity = curve.velocity
 
     stroke = float(
-        np.max(displacement) - np.min(displacement)
+        np.max(displacement)
+        - np.min(displacement)
     )
 
     if stroke <= 0.0:
         stroke = config.epsilon
 
-    acceleration = np.gradient(
-        velocity,
-        theta,
-    )
-
     return {
         "theta": theta,
         "displacement": displacement,
         "velocity": velocity,
-        "acceleration": acceleration,
         "stroke": stroke,
     }
 
@@ -460,111 +468,235 @@ def _filter_2(metrics, config):
 # Ranking criterion
 # ---------------------------------------------------------------------
 
-def _mean_abs_acceleration(metrics, config):
+def _curve_deviation(metrics, config):
     """
-    Mean absolute X acceleration over the complete plateau A1 -> A2.
+    RMS deviation between the real displacement curve and the
+    ideal piecewise-linear displacement law.
 
-    For the two other phases, 5° are removed at each end.
-    Acceleration is normalized by the total stroke.
+    The ideal law is defined entirely by A3:
+
+        A1 = 180° + A3
+        A2 = 360° - A3
+
+    The plateau A1 -> A2 is constant.
+
+    The two remaining phases each span the complete stroke:
+        A2 -> A3
+        A3 -> A1 + 360°
+
+    The transitions are deliberately included in the error.
     """
 
     theta = metrics["theta"]
-    acceleration = metrics["acceleration"]
-
-    a1 = metrics["plateau_start_angle"]
-    a2 = metrics["plateau_end_angle"]
-    a3 = metrics["a3_angle"]
-
-    n = len(theta)
-
-    # --------------------------------------------------------------
-    # Plateau A1 -> A2
-    #
-    # Entire plateau is included. No exclusion around A1 or A2.
-    # --------------------------------------------------------------
-
-    plateau_width = (
-        (a2 - a1) % 360.0
-    )
-
-    plateau_relative = (
-        (theta - a1) % 360.0
-    )
-
-    in_plateau = (
-        plateau_relative <= plateau_width
-    )
-
-    # --------------------------------------------------------------
-    # Remaining two phases
-    #
-    # Remove 5° at each end of each phase.
-    #
-    # The remaining region is therefore everything outside:
-    #   - plateau A1 -> A2
-    #   - 5° around A1
-    #   - 5° around A2
-    #   - 5° around the two phase boundaries
-    #
-    # A3 is retained unless it falls inside one of these excluded
-    # 5° zones.
-    # --------------------------------------------------------------
-
-    keep = np.ones(n, dtype=bool)
-
-    # Exclude the plateau from this second measurement.
-    keep &= ~in_plateau
-
-    # Exclude 5° around A1 and A2.
-    for angle in (a1, a2):
-
-        distance = np.abs(
-            (theta - angle + 180.0) % 360.0 - 180.0
-        )
-
-        keep &= (
-            distance
-            > config.acceleration_exclusion_deg
-        )
-
-    # For the remaining phases, exclude 5° around A3.
-    distance_a3 = np.abs(
-        (theta - a3 + 180.0) % 360.0 - 180.0
-    )
-
-    keep &= (
-        distance_a3
-        > config.acceleration_exclusion_deg
-    )
-
-    # --------------------------------------------------------------
-    # Acceleration used for the score.
-    #
-    # Plateau and remaining phases are both evaluated, with the
-    # exclusions above.
-    # --------------------------------------------------------------
-
-    values = np.abs(acceleration)
-
-    selected = (
-        in_plateau | keep
-    )
-
-    values = values[selected]
-
-    if len(values) == 0:
-        return float("inf")
-
-    mean_abs_acceleration = float(
-        np.mean(values)
-    )
-
+    displacement = metrics["displacement"]
     stroke = metrics["stroke"]
 
-    if stroke <= config.epsilon:
+    a3 = float(metrics["a3_angle"])
+
+    # --------------------------------------------------------------
+    # Ideal plateau boundaries.
+    # --------------------------------------------------------------
+
+    a1 = (
+        180.0 + a3
+    ) % 360.0
+
+    a2 = (
+        360.0 - a3
+    ) % 360.0
+
+    # --------------------------------------------------------------
+    # Determine whether the real plateau is at the minimum or
+    # maximum of the displacement.
+    # --------------------------------------------------------------
+
+    plateau_start = float(
+        metrics["plateau_start_angle"]
+    )
+    plateau_end = float(
+        metrics["plateau_end_angle"]
+    )
+
+    plateau_width = (
+        (plateau_end - plateau_start)
+        % 360.0
+    )
+
+    relative = (
+        (theta - plateau_start)
+        % 360.0
+    )
+
+    plateau_mask = (
+        relative <= plateau_width
+    )
+
+    plateau_values = displacement[
+        plateau_mask
+    ]
+
+    if len(plateau_values) == 0:
         return float("inf")
 
-    return mean_abs_acceleration / stroke
+    plateau_level = float(
+        np.mean(plateau_values)
+    )
+
+    x_min = float(
+        np.min(displacement)
+    )
+    x_max = float(
+        np.max(displacement)
+    )
+
+    # Plateau at maximum -> ideal value 1.
+    # Plateau at minimum -> ideal value 0.
+    if abs(plateau_level - x_max) <= abs(
+        plateau_level - x_min
+    ):
+        plateau_is_max = True
+    else:
+        plateau_is_max = False
+
+    # --------------------------------------------------------------
+    # Build an unwrapped angular coordinate starting at A2.
+    #
+    # This makes the three ideal phases continuous:
+    #
+    #   A2 -> A3 -> A1 + 360°
+    #
+    # while the plateau occupies the remaining interval.
+    # --------------------------------------------------------------
+
+    u = (
+        theta - a2
+    ) % 360.0
+
+    # Angular lengths of the two active phases.
+    phase_1_width = (
+        (a3 - a2)
+        % 360.0
+    )
+
+    phase_2_width = (
+        (a1 - a3)
+        % 360.0
+    )
+
+    if (
+        phase_1_width <= config.epsilon
+        or phase_2_width <= config.epsilon
+    ):
+        return float("inf")
+
+    # --------------------------------------------------------------
+    # Ideal normalized displacement.
+    # --------------------------------------------------------------
+
+    ideal = np.empty_like(
+        displacement,
+        dtype=float,
+    )
+
+    if plateau_is_max:
+
+        # A2 -> A3 : max -> min
+        mask_1 = (
+            u <= phase_1_width
+        )
+
+        ideal[mask_1] = (
+            1.0
+            - u[mask_1] / phase_1_width
+        )
+
+        # A3 -> A1 : min -> max
+        mask_2 = (
+            (u > phase_1_width)
+            & (
+                u
+                <= phase_1_width
+                + phase_2_width
+            )
+        )
+
+        local = (
+            u[mask_2]
+            - phase_1_width
+        )
+
+        ideal[mask_2] = (
+            local / phase_2_width
+        )
+
+        # Remaining interval = plateau.
+        ideal[
+            ~(
+                mask_1
+                | mask_2
+            )
+        ] = 1.0
+
+    else:
+
+        # A2 -> A3 : min -> max
+        mask_1 = (
+            u <= phase_1_width
+        )
+
+        ideal[mask_1] = (
+            u[mask_1] / phase_1_width
+        )
+
+        # A3 -> A1 : max -> min
+        mask_2 = (
+            (u > phase_1_width)
+            & (
+                u
+                <= phase_1_width
+                + phase_2_width
+            )
+        )
+
+        local = (
+            u[mask_2]
+            - phase_1_width
+        )
+
+        ideal[mask_2] = (
+            1.0
+            - local / phase_2_width
+        )
+
+        # Remaining interval = plateau.
+        ideal[
+            ~(
+                mask_1
+                | mask_2
+            )
+        ] = 0.0
+
+    # --------------------------------------------------------------
+    # Normalize the real displacement by its complete stroke.
+    # --------------------------------------------------------------
+
+    real = (
+        displacement - x_min
+    ) / stroke
+
+    error = (
+        real - ideal
+    )
+
+    rms = float(
+        np.sqrt(
+            np.mean(
+                error ** 2
+            )
+        )
+    )
+
+    return rms
 
 
 # ---------------------------------------------------------------------
