@@ -142,9 +142,7 @@ def _find_plateau_candidates(metrics, config):
 
     step = float(theta[1] - theta[0])
 
-    amplitude_limit = (
-        config.plateau_max_amplitude_ratio * stroke
-    )
+    amplitude_limit = 0.05 * stroke
 
     # Les plateaux recherchés doivent être situés sur un extremum
     # de la course de X : maximum global ou minimum global.
@@ -201,7 +199,7 @@ def _find_plateau_candidates(metrics, config):
         width = (end - start) * step
 
         if (
-            width <= config.plateau_min_width_deg
+            width < 60.0
             or width >= config.plateau_max_width_deg
         ):
             continue
@@ -462,7 +460,10 @@ def _filter_2(metrics, config):
 
 def _mean_abs_acceleration(metrics, config):
     """
-    Mean absolute X acceleration, excluding ±10° around A1, A2 and A3.
+    Mean absolute X acceleration over the complete plateau A1 -> A2.
+
+    For the two other phases, 5° are removed at each end.
+    Acceleration is normalized by the total stroke.
     """
 
     theta = metrics["theta"]
@@ -472,27 +473,76 @@ def _mean_abs_acceleration(metrics, config):
     a2 = metrics["plateau_end_angle"]
     a3 = metrics["a3_angle"]
 
-    exclusion = config.acceleration_exclusion_deg
+    n = len(theta)
 
-    keep = np.ones(
-        len(theta),
-        dtype=bool,
+    # --------------------------------------------------------------
+    # Plateau A1 -> A2
+    #
+    # Entire plateau is included. No exclusion around A1 or A2.
+    # --------------------------------------------------------------
+
+    plateau_width = (
+        (a2 - a1) % 360.0
     )
 
-    for angle in (a1, a2, a3):
+    plateau_relative = (
+        (theta - a1) % 360.0
+    )
 
-        keep &= (
-            np.abs(
-                (
-                    theta - angle + 180.0
-                ) % 360.0 - 180.0
-            )
-            > exclusion
+    in_plateau = (
+        plateau_relative <= plateau_width
+    )
+
+    # --------------------------------------------------------------
+    # Remaining two phases
+    #
+    # Remove 5° at each end of each phase.
+    #
+    # The remaining region is therefore everything outside:
+    #   - plateau A1 -> A2
+    #   - 5° around A1
+    #   - 5° around A2
+    #   - 5° around the two phase boundaries
+    #
+    # A3 is retained unless it falls inside one of these excluded
+    # 5° zones.
+    # --------------------------------------------------------------
+
+    keep = np.ones(n, dtype=bool)
+
+    # Exclude the plateau from this second measurement.
+    keep &= ~in_plateau
+
+    # Exclude 5° around A1 and A2.
+    for angle in (a1, a2):
+
+        distance = np.abs(
+            (theta - angle + 180.0) % 360.0 - 180.0
         )
 
-    values = np.abs(
-        acceleration[keep]
+        keep &= distance > 5.0
+
+    # For the remaining phases, exclude 5° around A3.
+    distance_a3 = np.abs(
+        (theta - a3 + 180.0) % 360.0 - 180.0
     )
+
+    keep &= distance_a3 > 5.0
+
+    # --------------------------------------------------------------
+    # Acceleration used for the score.
+    #
+    # Plateau and remaining phases are both evaluated, with the
+    # exclusions above.
+    # --------------------------------------------------------------
+
+    values = np.abs(acceleration)
+
+    selected = (
+        in_plateau | keep
+    )
+
+    values = values[selected]
 
     if len(values) == 0:
         return float("inf")
@@ -501,9 +551,6 @@ def _mean_abs_acceleration(metrics, config):
         np.mean(values)
     )
 
-    # Normalise l'accélération par la course totale.
-    # L'angle reste exprimé en radians : aucune normalisation
-    # angulaire n'est appliquée.
     stroke = metrics["stroke"]
 
     if stroke <= config.epsilon:
