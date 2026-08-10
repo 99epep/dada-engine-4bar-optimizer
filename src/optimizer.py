@@ -2,8 +2,6 @@
 # File: optimizer.py (part 1/5)
 # =========================
 
-from heapq import heappush, heapreplace
-
 from kinematics import build_candidate_curve, solve
 from mechanism_generator import generate_mechanisms
 from models import SearchStatistics, Solution
@@ -78,27 +76,13 @@ def optimize(config):
             )
 
             if support.kind.value == "E":
-                _push_solution(
-                    best_E,
-                    solution,
-                    config.max_solutions,
-                )
+                best_E.append(solution)
             else:
-                _push_solution(
-                    best_F,
-                    solution,
-                    config.max_solutions,
-                )
+                best_F.append(solution)
 
     return (
-        _filter_geometrically_close(
-            best_solutions(best_E),
-            config,
-        ),
-        _filter_geometrically_close(
-            best_solutions(best_F),
-            config,
-        ),
+        _finalize_solutions(best_E, config),
+        _finalize_solutions(best_F, config),
     )
 
 
@@ -133,47 +117,43 @@ def is_grashof_crank_rocker(mechanism):
     )
 
 
-def _push_solution(heap, solution, maximum):
-    """
-    Keep only the N best solutions.
-    """
-
-    item = (solution.score, solution)
-
-    if len(heap) < maximum:
-        heappush(heap, item)
-        return
-
-    if solution.score <= heap[0][0]:
-        return
-
-    heapreplace(heap, item)
-
-
-def best_scores(heap):
-    """
-    Convenience function for debugging.
-    """
-
-    return sorted(
-        (score for score, _ in heap),
-        reverse=True,
-    )
-
-
-def best_solutions(heap):
+def best_solutions(solutions):
     """
     Returns solutions sorted by decreasing score.
     """
 
+    return sorted(
+        solutions,
+        key=lambda solution: solution.score,
+        reverse=True,
+    )
+
+
+def best_scores(solutions):
+    """
+    Convenience function for debugging.
+    """
+
     return [
-        solution
-        for _, solution in sorted(
-            heap,
-            key=lambda item: item[0],
-            reverse=True,
-        )
+        solution.score
+        for solution in best_solutions(solutions)
     ]
+
+
+def _finalize_solutions(solutions, config):
+    """
+    Deduplicate geometrically first, then keep the N best.
+    """
+
+    solutions = best_solutions(solutions)
+
+    solutions = _filter_geometrically_close(
+        solutions,
+        config,
+    )
+
+    return solutions[:config.max_solutions]
+
 
 # =========================
 # File: optimizer.py (part 3/5)
@@ -239,27 +219,13 @@ def optimize_with_statistics(config):
             )
 
             if support.kind.value == "E":
-                _push_solution(
-                    best_E,
-                    solution,
-                    config.max_solutions,
-                )
+                best_E.append(solution)
             else:
-                _push_solution(
-                    best_F,
-                    solution,
-                    config.max_solutions,
-                )
+                best_F.append(solution)
 
     return (
-        _filter_geometrically_close(
-            best_solutions(best_E),
-            config,
-        ),
-        _filter_geometrically_close(
-            best_solutions(best_F),
-            config,
-        ),
+        _finalize_solutions(best_E, config),
+        _finalize_solutions(best_F, config),
         stats,
     )
 
