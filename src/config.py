@@ -15,7 +15,7 @@ class SolverConfig:
 
     angle_start_deg: float = 0.0
     angle_end_deg: float = 360.0
-    angle_step_deg: float = 5.0
+    angle_step_deg: float = 2.0
 
     # --------------------------------------------------
     # Espace de recherche
@@ -26,19 +26,16 @@ class SolverConfig:
 
     # Manivelle AB.
     crank_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(25.0, 76.0, 10.0)
+        default_factory=lambda: np.arange(25.0, 76.0, 3.0)
     )
 
     # Bielle BC et culbuteur CD.
     coupler_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(100.0, 221.0, 20.0)
+        default_factory=lambda: np.arange(100.0, 221.0, 3.0)
     )
 
     rocker_lengths: np.ndarray = field(
-        default_factory=lambda: np.array(
-            [100.0, 110.0, 120.0, 130.0, 140.0,
-             160.0, 180.0, 200.0, 220.0]
-        )
+        default_factory=lambda: np.arange(100.0, 221.0, 3.0)
     )
 
     # --------------------------------------------------
@@ -86,7 +83,7 @@ class SolverConfig:
     # Recherche des supports
     # --------------------------------------------------
 
-    support_E_step_deg: float = 10.0
+    support_E_step_deg: float = 5.0
     support_F_radius_factor: float = 3.0
     support_F_grid_step_factor: float = 0.20
 
