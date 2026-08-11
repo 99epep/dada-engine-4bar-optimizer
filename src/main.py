@@ -26,20 +26,8 @@ def print_solutions(title, solutions):
         start=1,
     ):
 
-        components = getattr(
-            solution,
-            "score_components",
-            {},
-        )
-
-        acceleration = components.get(
-            "mean_abs_acceleration",
-            float("nan"),
-        )
-
         print(
             f"{i:3d} | "
-            f"accel={acceleration:.8f} | "
             f"score={solution.score:.6f} | "
             f"support={solution.support.kind.value}"
         )

@@ -35,9 +35,27 @@ def list_solutions(filename="results.npz"):
 
             support = solution["support"]
 
-            support_name = (
-                "E" if kind == "E" else "F"
-            )
+            if kind == "E":
+                # E est défini dans le repère lié au culbuteur CD.
+                # L'angle CDE est donc directement l'angle de
+                # la grille du demi-cercle.
+                angle_cde = np.degrees(
+                    np.arctan2(
+                        support["local_y"],
+                        support["local_x"],
+                    )
+                )
+
+                support_info = (
+                    f"CDE={angle_cde:.0f}°"
+                )
+
+            else:
+                support_info = (
+                    f"F=("
+                    f"{support['local_x']:.1f}, "
+                    f"{support['local_y']:.1f})"
+                )
 
             print(
                 f"{i:3d} | "
@@ -46,9 +64,7 @@ def list_solutions(filename="results.npz"):
                 f"crank={mechanism['crank']:.0f} "
                 f"coupler={mechanism['coupler']:.0f} "
                 f"rocker={mechanism['rocker']:.0f} | "
-                f"{support_name}=("
-                f"{support['local_x']:.1f}, "
-                f"{support['local_y']:.1f})"
+                f"{support_info}"
             )
 
     return results

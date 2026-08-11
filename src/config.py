@@ -15,7 +15,7 @@ class SolverConfig:
 
     # True  : haute définition
     # False : mode rapide (~1 min)
-    high_definition: bool = True
+    high_definition: bool = False
 
     # --------------------------------------------------
     # Cinématique
