@@ -42,7 +42,10 @@ class SolverConfig:
         if self.high_definition:
             return
 
-        # Ancienne configuration rapide.
+        # --------------------------------------------------
+        # Ancienne configuration rapide (~1 min)
+        # --------------------------------------------------
+
         self.angle_step_deg = 5.0
 
         self.crank_lengths = np.arange(
