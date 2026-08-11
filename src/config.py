@@ -10,6 +10,14 @@ import numpy as np
 class SolverConfig:
 
     # --------------------------------------------------
+    # Niveau de définition
+    # --------------------------------------------------
+
+    # True  : haute définition
+    # False : mode rapide (~1 min)
+    high_definition: bool = True
+
+    # --------------------------------------------------
     # Cinématique
     # --------------------------------------------------
 
