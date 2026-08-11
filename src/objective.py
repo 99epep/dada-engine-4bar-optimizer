@@ -9,12 +9,22 @@ from models import CandidateResult
 
 def evaluate_candidate(curve, config):
     """
-    Evaluate one candidate.
+    Évalue un candidat.
 
-    The filters determine the valid geometry.
-    The score measures the RMS deviation of the real displacement
-    curve from the ideal piecewise-linear displacement law defined
-    by A3 and the plateau geometry.
+    Les filtres géométriques restent inchangés.
+
+    Le score final est construit en deux blocs :
+
+        Q_shape = qualité de la forme
+        Q_accel = qualité des trois transitions
+
+        score_base = 0.5 * Q_shape + 0.5 * Q_accel
+
+    puis :
+
+        score = score_base * symmetry_factor
+
+    Plus le score est élevé, meilleure est la solution.
     """
 
     metrics = _compute_metrics(curve, config)
@@ -31,7 +41,7 @@ def evaluate_candidate(curve, config):
             reject_reason="plateau",
         )
 
-    best_score = None
+    best_score = -np.inf
     best_metrics = None
 
     for plateau in plateau_candidates:
@@ -47,17 +57,21 @@ def evaluate_candidate(curve, config):
         if not ok:
             continue
 
-        deviation = _curve_deviation(
+        score_data = _score_candidate(
             candidate,
             config,
         )
 
+        score = score_data["score"]
+
         if (
-            best_score is None
-            or deviation < best_score
+            best_metrics is None
+            or score > best_score
         ):
-            best_score = deviation
+            best_score = score
+
             best_metrics = candidate
+            best_metrics.update(score_data)
 
     if best_metrics is None:
         return CandidateResult(
@@ -66,33 +80,66 @@ def evaluate_candidate(curve, config):
             reject_reason="bisector",
         )
 
-    # Smaller deviation = better solution.
-    score = 1.0 / (
-        best_score + config.epsilon
-    )
+    components = {
+        "shape_quality":
+            best_metrics["shape_quality"],
 
-    best_metrics["score_components"] = {
-        "curve_deviation": best_score,
-        "plateau_start_angle":
-            best_metrics["plateau_start_angle"],
-        "plateau_end_angle":
-            best_metrics["plateau_end_angle"],
+        "plateau_error":
+            best_metrics["plateau_error"],
+
+        "rapid_error":
+            best_metrics["rapid_error"],
+
+        "slow_error":
+            best_metrics["slow_error"],
+
+        "acceleration_quality":
+            best_metrics["acceleration_quality"],
+
+        "acceleration_a1":
+            best_metrics["acceleration_a1"],
+
+        "acceleration_a3":
+            best_metrics["acceleration_a3"],
+
+        "acceleration_a2":
+            best_metrics["acceleration_a2"],
+
+        "acceleration_q_a1":
+            best_metrics["acceleration_q_a1"],
+
+        "acceleration_q_a3":
+            best_metrics["acceleration_q_a3"],
+
+        "acceleration_q_a2":
+            best_metrics["acceleration_q_a2"],
+
+        "symmetry_factor":
+            best_metrics["symmetry_factor"],
+
+        "a1_angle":
+            best_metrics["a1_angle"],
+
         "a3_angle":
             best_metrics["a3_angle"],
+
+        "a2_angle":
+            best_metrics["a2_angle"],
+
         "ai_angle":
             best_metrics["ai_angle"],
+
         "bisector_angle":
             best_metrics["bisector_angle"],
     }
 
     return CandidateResult(
         accepted=True,
-        score=score,
+        score=float(best_score),
         reject_reason=None,
-        score_components=best_metrics[
-            "score_components"
-        ],
+        score_components=components,
     )
+
 
 
 # ---------------------------------------------------------------------
@@ -100,24 +147,54 @@ def evaluate_candidate(curve, config):
 # ---------------------------------------------------------------------
 
 def _compute_metrics(curve, config):
-    theta = curve.theta
-    displacement = curve.displacement
-    velocity = curve.velocity
+    theta = np.asarray(curve.theta, dtype=float)
+    displacement = np.asarray(
+        curve.displacement,
+        dtype=float,
+    )
+
+    if len(theta) < 5:
+        return {
+            "theta": theta,
+            "displacement": displacement,
+            "velocity": np.zeros_like(displacement),
+            "acceleration": np.zeros_like(displacement),
+            "stroke": config.epsilon,
+        }
 
     stroke = float(
         np.max(displacement)
         - np.min(displacement)
     )
 
-    if stroke <= 0.0:
+    if stroke <= config.epsilon:
         stroke = config.epsilon
+
+    # Recalcul propre des dérivées.
+    #
+    # On ne dépend pas de curve.velocity pour éviter qu'une
+    # approximation ancienne du modèle contamine le nouveau score.
+
+    velocity = np.gradient(
+        displacement,
+        theta,
+        edge_order=2,
+    )
+
+    acceleration = np.gradient(
+        velocity,
+        theta,
+        edge_order=2,
+    )
 
     return {
         "theta": theta,
         "displacement": displacement,
         "velocity": velocity,
+        "acceleration": acceleration,
         "stroke": stroke,
     }
+
 
 
 # ---------------------------------------------------------------------
@@ -468,33 +545,34 @@ def _filter_2(metrics, config):
 # Ranking criterion
 # ---------------------------------------------------------------------
 
-def _curve_deviation(metrics, config):
+def _score_candidate(metrics, config):
     """
-    RMS deviation between the real displacement curve and the
-    ideal piecewise-linear displacement law.
+    Score final.
 
-    The ideal law is defined entirely by A3:
+    1. Qualité de forme :
+         1/3 plateau
+         1/3 phase rapide
+         1/3 phase lente
 
-        A1 = 180° + A3
-        A2 = 360° - A3
+    2. Accélérations :
+         A1, A3 et A2 sont normalisées INDIVIDUELLEMENT
+         avant leur moyenne.
 
-    The plateau A1 -> A2 is constant.
+    3. Les deux blocs ont exactement le même poids.
 
-    The two remaining phases each span the complete stroke:
-        A2 -> A3
-        A3 -> A1 + 360°
-
-    The transitions are deliberately included in the error.
+    4. Une petite pénalisation de dissymétrie est appliquée
+       autour de 0° / 180°.
     """
 
     theta = metrics["theta"]
     displacement = metrics["displacement"]
+    acceleration = metrics["acceleration"]
     stroke = metrics["stroke"]
 
     a3 = float(metrics["a3_angle"])
 
     # --------------------------------------------------------------
-    # Ideal plateau boundaries.
+    # A1 / A2 idéaux déduits de A3.
     # --------------------------------------------------------------
 
     a1 = (
@@ -505,198 +583,616 @@ def _curve_deviation(metrics, config):
         360.0 - a3
     ) % 360.0
 
-    # --------------------------------------------------------------
-    # Determine whether the real plateau is at the minimum or
-    # maximum of the displacement.
-    # --------------------------------------------------------------
-
-    plateau_start = float(
-        metrics["plateau_start_angle"]
-    )
-    plateau_end = float(
-        metrics["plateau_end_angle"]
-    )
-
-    plateau_width = (
-        (plateau_end - plateau_start)
-        % 360.0
-    )
-
-    relative = (
-        (theta - plateau_start)
-        % 360.0
-    )
-
-    plateau_mask = (
-        relative <= plateau_width
-    )
-
-    plateau_values = displacement[
-        plateau_mask
-    ]
-
-    if len(plateau_values) == 0:
-        return float("inf")
-
-    plateau_level = float(
-        np.mean(plateau_values)
-    )
-
-    x_min = float(
-        np.min(displacement)
-    )
-    x_max = float(
-        np.max(displacement)
-    )
-
-    # Plateau at maximum -> ideal value 1.
-    # Plateau at minimum -> ideal value 0.
-    if abs(plateau_level - x_max) <= abs(
-        plateau_level - x_min
-    ):
-        plateau_is_max = True
-    else:
-        plateau_is_max = False
+    metrics["a1_angle"] = a1
+    metrics["a2_angle"] = a2
 
     # --------------------------------------------------------------
-    # Build an unwrapped angular coordinate starting at A2.
-    #
-    # This makes the three ideal phases continuous:
-    #
-    #   A2 -> A3 -> A1 + 360°
-    #
-    # while the plateau occupies the remaining interval.
+    # Coordonnée angulaire déroulée à partir de A2.
     # --------------------------------------------------------------
 
     u = (
         theta - a2
     ) % 360.0
 
-    # Angular lengths of the two active phases.
-    phase_1_width = (
+    width_1 = (
         (a3 - a2)
         % 360.0
     )
 
-    phase_2_width = (
+    width_2 = (
         (a1 - a3)
         % 360.0
     )
 
     if (
-        phase_1_width <= config.epsilon
-        or phase_2_width <= config.epsilon
+        width_1 <= config.epsilon
+        or width_2 <= config.epsilon
     ):
-        return float("inf")
+        return {
+            "score": 0.0,
+            "shape_quality": 0.0,
+            "plateau_error": 1.0,
+            "rapid_error": 1.0,
+            "slow_error": 1.0,
+            "acceleration_quality": 0.0,
+            "acceleration_a1": 0.0,
+            "acceleration_a3": 0.0,
+            "acceleration_a2": 0.0,
+            "acceleration_q_a1": 0.0,
+            "acceleration_q_a3": 0.0,
+            "acceleration_q_a2": 0.0,
+            "symmetry_factor": 0.0,
+        }
 
     # --------------------------------------------------------------
-    # Ideal normalized displacement.
+    # Détermination du niveau du plateau.
+    # --------------------------------------------------------------
+
+    plateau_start = float(
+        metrics["plateau_start_angle"]
+    )
+
+    plateau_width = float(
+        metrics["plateau_width"]
+    )
+
+    plateau_relative = (
+        (theta - plateau_start)
+        % 360.0
+    )
+
+    plateau_mask = (
+        plateau_relative <= plateau_width
+    )
+
+    if not np.any(plateau_mask):
+        return {
+            "score": 0.0,
+            "shape_quality": 0.0,
+            "plateau_error": 1.0,
+            "rapid_error": 1.0,
+            "slow_error": 1.0,
+            "acceleration_quality": 0.0,
+            "acceleration_a1": 0.0,
+            "acceleration_a3": 0.0,
+            "acceleration_a2": 0.0,
+            "acceleration_q_a1": 0.0,
+            "acceleration_q_a3": 0.0,
+            "acceleration_q_a2": 0.0,
+            "symmetry_factor": 0.0,
+        }
+
+    plateau_values = displacement[plateau_mask]
+
+    plateau_level = float(
+        np.mean(plateau_values)
+    )
+
+    x_min = float(np.min(displacement))
+    x_max = float(np.max(displacement))
+
+    plateau_is_max = (
+        abs(plateau_level - x_max)
+        <=
+        abs(plateau_level - x_min)
+    )
+
+    # --------------------------------------------------------------
+    # Déplacement normalisé.
+    # --------------------------------------------------------------
+
+    if plateau_is_max:
+        x_norm = (
+            displacement - x_min
+        ) / stroke
+    else:
+        x_norm = (
+            x_max - displacement
+        ) / stroke
+
+    x_norm = np.clip(
+        x_norm,
+        -1.0,
+        2.0,
+    )
+
+    # --------------------------------------------------------------
+    # Loi idéale.
+    #
+    # A2 -> A3 : 1 -> 0
+    # A3 -> A1 : 0 -> 1
+    # plateau   : 1
+    #
+    # Le plateau est traité avec sa vraie position mesurée,
+    # tandis que les deux phases actives utilisent A3.
     # --------------------------------------------------------------
 
     ideal = np.empty_like(
-        displacement,
+        x_norm,
+    )
+
+    mask_rapid = (
+        u <= width_1
+    )
+
+    mask_slow = (
+        (u > width_1)
+        &
+        (
+            u <= width_1 + width_2
+        )
+    )
+
+    mask_plateau = ~(
+        mask_rapid | mask_slow
+    )
+
+    ideal[mask_rapid] = (
+        1.0
+        - u[mask_rapid] / width_1
+    )
+
+    local_slow = (
+        u[mask_slow]
+        - width_1
+    )
+
+    ideal[mask_slow] = (
+        local_slow / width_2
+    )
+
+    ideal[mask_plateau] = 1.0
+
+    # --------------------------------------------------------------
+    # RMS séparés.
+    #
+    # Important :
+    # aucune phase ne peut être "cachée" par une autre.
+    # --------------------------------------------------------------
+
+    plateau_error = _rms(
+        x_norm[mask_plateau] - ideal[mask_plateau]
+    )
+
+    rapid_error = _rms(
+        x_norm[mask_rapid] - ideal[mask_rapid]
+    )
+
+    slow_error = _rms(
+        x_norm[mask_slow] - ideal[mask_slow]
+    )
+
+    # Normalisation conservatrice des erreurs.
+    shape_error = (
+        plateau_error
+        + rapid_error
+        + slow_error
+    ) / 3.0
+
+    shape_quality = np.clip(
+        1.0 - shape_error,
+        0.0,
+        1.0,
+    )
+
+    # --------------------------------------------------------------
+    # Accélérations aux trois changements de phase.
+    #
+    # On prend la valeur maximale locale de |a| dans une petite
+    # fenêtre autour de chaque transition. Cela évite que le
+    # résultat dépende d'un unique point d'échantillonnage.
+    # --------------------------------------------------------------
+
+    accel_a1 = _local_peak_acceleration(
+        theta,
+        acceleration,
+        a1,
+    )
+
+    accel_a3 = _local_peak_acceleration(
+        theta,
+        acceleration,
+        a3,
+    )
+
+    accel_a2 = _local_peak_acceleration(
+        theta,
+        acceleration,
+        a2,
+    )
+
+    # --------------------------------------------------------------
+    # Accélération idéale discrétisée.
+    #
+    # L'idéal mathématique possède des transitions instantanées,
+    # donc une accélération infinie.
+    #
+    # Pour rendre le problème numérique et indépendant de la
+    # géométrie, on utilise la même loi idéale échantillonnée sur
+    # les mêmes angles que le candidat.
+    # --------------------------------------------------------------
+
+    ideal_acceleration = _ideal_acceleration(
+        theta,
+        a1,
+        a3,
+        a2,
+        plateau_is_max,
+    )
+
+    ideal_a1 = _local_peak_acceleration(
+        theta,
+        ideal_acceleration,
+        a1,
+    )
+
+    ideal_a3 = _local_peak_acceleration(
+        theta,
+        ideal_acceleration,
+        a3,
+    )
+
+    ideal_a2 = _local_peak_acceleration(
+        theta,
+        ideal_acceleration,
+        a2,
+    )
+
+    # --------------------------------------------------------------
+    # NORMALISATION INDIVIDUELLE.
+    #
+    # C'est volontairement :
+    #
+    #     q1 = a1 / ideal_a1
+    #     q3 = a3 / ideal_a3
+    #     q2 = a2 / ideal_a2
+    #
+    # puis seulement ensuite :
+    #
+    #     Q_A = (q1 + q3 + q2) / 3
+    #
+    # On n'additionne donc jamais les trois accélérations brutes.
+    # --------------------------------------------------------------
+
+    q_a1 = _acceleration_quality(
+        accel_a1,
+        ideal_a1,
+    )
+
+    q_a3 = _acceleration_quality(
+        accel_a3,
+        ideal_a3,
+    )
+
+    q_a2 = _acceleration_quality(
+        accel_a2,
+        ideal_a2,
+    )
+
+    acceleration_quality = (
+        q_a1
+        + q_a3
+        + q_a2
+    ) / 3.0
+
+    # --------------------------------------------------------------
+    # Symétrie.
+    #
+    # La meilleure géométrie doit présenter une transition rapide
+    # centrée autour de 0° ou 180°.
+    #
+    # On utilise le bisecteur déjà calculé par le filtre 2.
+    # --------------------------------------------------------------
+
+    bisector = float(
+        metrics["bisector_angle"]
+    )
+
+    d0 = _angular_distance(
+        bisector,
+        0.0,
+    )
+
+    d180 = _angular_distance(
+        bisector,
+        180.0,
+    )
+
+    symmetry_error = min(
+        d0,
+        d180,
+    )
+
+    symmetry_factor = np.clip(
+        1.0
+        - symmetry_error / 15.0,
+        0.0,
+        1.0,
+    )
+
+    # --------------------------------------------------------------
+    # Score final : 50 % forme + 50 % accélération.
+    # --------------------------------------------------------------
+
+    score_base = (
+        0.5 * shape_quality
+        +
+        0.5 * acceleration_quality
+    )
+
+    score = (
+        score_base
+        * symmetry_factor
+    )
+
+    return {
+        "score": float(score),
+
+        "shape_quality":
+            float(shape_quality),
+
+        "plateau_error":
+            float(plateau_error),
+
+        "rapid_error":
+            float(rapid_error),
+
+        "slow_error":
+            float(slow_error),
+
+        "acceleration_quality":
+            float(acceleration_quality),
+
+        "acceleration_a1":
+            float(accel_a1),
+
+        "acceleration_a3":
+            float(accel_a3),
+
+        "acceleration_a2":
+            float(accel_a2),
+
+        "acceleration_q_a1":
+            float(q_a1),
+
+        "acceleration_q_a3":
+            float(q_a3),
+
+        "acceleration_q_a2":
+            float(q_a2),
+
+        "symmetry_factor":
+            float(symmetry_factor),
+    }
+
+def _rms(values):
+    values = np.asarray(
+        values,
         dtype=float,
     )
 
-    if plateau_is_max:
+    if values.size == 0:
+        return 1.0
 
-        # A2 -> A3 : max -> min
-        mask_1 = (
-            u <= phase_1_width
-        )
-
-        ideal[mask_1] = (
-            1.0
-            - u[mask_1] / phase_1_width
-        )
-
-        # A3 -> A1 : min -> max
-        mask_2 = (
-            (u > phase_1_width)
-            & (
-                u
-                <= phase_1_width
-                + phase_2_width
-            )
-        )
-
-        local = (
-            u[mask_2]
-            - phase_1_width
-        )
-
-        ideal[mask_2] = (
-            local / phase_2_width
-        )
-
-        # Remaining interval = plateau.
-        ideal[
-            ~(
-                mask_1
-                | mask_2
-            )
-        ] = 1.0
-
-    else:
-
-        # A2 -> A3 : min -> max
-        mask_1 = (
-            u <= phase_1_width
-        )
-
-        ideal[mask_1] = (
-            u[mask_1] / phase_1_width
-        )
-
-        # A3 -> A1 : max -> min
-        mask_2 = (
-            (u > phase_1_width)
-            & (
-                u
-                <= phase_1_width
-                + phase_2_width
-            )
-        )
-
-        local = (
-            u[mask_2]
-            - phase_1_width
-        )
-
-        ideal[mask_2] = (
-            1.0
-            - local / phase_2_width
-        )
-
-        # Remaining interval = plateau.
-        ideal[
-            ~(
-                mask_1
-                | mask_2
-            )
-        ] = 0.0
-
-    # --------------------------------------------------------------
-    # Normalize the real displacement by its complete stroke.
-    # --------------------------------------------------------------
-
-    real = (
-        displacement - x_min
-    ) / stroke
-
-    error = (
-        real - ideal
-    )
-
-    rms = float(
+    return float(
         np.sqrt(
             np.mean(
-                error ** 2
+                values * values
             )
         )
     )
 
-    return rms
+
+def _angular_distance(a, b):
+    return abs(
+        (
+            a - b + 180.0
+        ) % 360.0
+        - 180.0
+    )
+
+
+def _local_peak_acceleration(
+    theta,
+    acceleration,
+    angle,
+):
+    """
+    Maximum |acceleration| dans une fenêtre locale.
+
+    La fenêtre est choisie à partir du pas angulaire réel afin
+    que le calcul fonctionne aussi bien en mode 5° qu'en haute
+    définition.
+    """
+
+    theta = np.asarray(
+        theta,
+        dtype=float,
+    )
+
+    acceleration = np.asarray(
+        acceleration,
+        dtype=float,
+    )
+
+    if len(theta) == 0:
+        return 0.0
+
+    if len(theta) > 1:
+        step = abs(
+            float(theta[1] - theta[0])
+        )
+    else:
+        step = 1.0
+
+    half_window = max(
+        step * 1.5,
+        1.0,
+    )
+
+    distances = np.array([
+        _angular_distance(
+            float(t),
+            angle,
+        )
+        for t in theta
+    ])
+
+    mask = (
+        distances <= half_window
+    )
+
+    if not np.any(mask):
+        index = int(
+            np.argmin(distances)
+        )
+
+        return float(
+            abs(acceleration[index])
+        )
+
+    return float(
+        np.max(
+            np.abs(
+                acceleration[mask]
+            )
+        )
+    )
+
+
+def _ideal_acceleration(
+    theta,
+    a1,
+    a3,
+    a2,
+    plateau_is_max,
+):
+    """
+    Accélération numérique de la loi idéale.
+
+    On construit d'abord la position idéale sur la grille réelle,
+    puis on applique exactement les mêmes dérivées numériques
+    que pour le candidat.
+
+    Cela évite toute dépendance à une unité arbitraire.
+    """
+
+    theta = np.asarray(
+        theta,
+        dtype=float,
+    )
+
+    u = (
+        theta - a2
+    ) % 360.0
+
+    width_1 = (
+        (a3 - a2)
+        % 360.0
+    )
+
+    width_2 = (
+        (a1 - a3)
+        % 360.0
+    )
+
+    ideal = np.empty_like(
+        theta,
+        dtype=float,
+    )
+
+    mask_1 = (
+        u <= width_1
+    )
+
+    mask_2 = (
+        (u > width_1)
+        &
+        (
+            u <= width_1 + width_2
+        )
+    )
+
+    mask_3 = ~(
+        mask_1 | mask_2
+    )
+
+    ideal[mask_1] = (
+        1.0
+        - u[mask_1] / width_1
+    )
+
+    ideal[mask_2] = (
+        u[mask_2] - width_1
+    ) / width_2
+
+    ideal[mask_3] = 1.0
+
+    if len(theta) < 5:
+        return np.zeros_like(
+            ideal
+        )
+
+    velocity = np.gradient(
+        ideal,
+        theta,
+        edge_order=2,
+    )
+
+    return np.gradient(
+        velocity,
+        theta,
+        edge_order=2,
+    )
+
+
+def _acceleration_quality(
+    actual,
+    ideal,
+):
+    """
+    Compare une accélération à sa propre référence.
+
+    Chaque transition est traitée séparément.
+
+    Une accélération réelle au moins égale à la référence
+    discrète reçoit la note maximale 1.
+    """
+
+    actual = abs(
+        float(actual)
+    )
+
+    ideal = abs(
+        float(ideal)
+    )
+
+    if ideal <= 1e-15:
+        return 1.0
+
+    return float(
+        np.clip(
+            actual / ideal,
+            0.0,
+            1.0,
+        )
+    )
+
+def _curve_deviation(metrics, config):
+    """
+    Compatibilité avec l'ancienne API.
+
+    Le nouveau moteur de classement n'utilise plus cette fonction.
+    """
+    data = _score_candidate(
+        metrics,
+        config,
+    )
+
+    return float(
+        1.0 - data["shape_quality"]
+    )
+
 
 
 # ---------------------------------------------------------------------
