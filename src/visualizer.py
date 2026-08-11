@@ -33,14 +33,22 @@ def list_solutions(filename="results.npz"):
 
             mechanism = solution["mechanism"]
 
+            support = solution["support"]
+
+            support_name = (
+                "E" if kind == "E" else "F"
+            )
+
             print(
                 f"{i:3d} | "
                 f"score={solution['score']:.6f} | "
                 f""
-                f"A={mechanism['ground']:.0f} "
-                f"B={mechanism['crank']:.0f} "
-                f"C={mechanism['coupler']:.0f} "
-                f"D={mechanism['rocker']:.0f}"
+                f"crank={mechanism['crank']:.0f} "
+                f"coupler={mechanism['coupler']:.0f} "
+                f"rocker={mechanism['rocker']:.0f} | "
+                f"{support_name}=("
+                f"{support['local_x']:.1f}, "
+                f"{support['local_y']:.1f})"
             )
 
     return results

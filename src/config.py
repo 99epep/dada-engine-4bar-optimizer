@@ -26,17 +26,39 @@ class SolverConfig:
 
     # Manivelle AB.
     crank_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(25.0, 76.0, 3.0)
+        default_factory=lambda: np.arange(25.0, 76.0, 2.0)
     )
 
     # Bielle BC et culbuteur CD.
     coupler_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(100.0, 221.0, 3.0)
+        default_factory=lambda: np.arange(100.0, 221.0, 2.0)
     )
 
     rocker_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(100.0, 221.0, 3.0)
+        default_factory=lambda: np.arange(100.0, 221.0, 2.0)
     )
+
+    def __post_init__(self):
+        if self.high_definition:
+            return
+
+        # Ancienne configuration rapide.
+        self.angle_step_deg = 5.0
+
+        self.crank_lengths = np.arange(
+            25.0, 76.0, 10.0
+        )
+
+        self.coupler_lengths = np.arange(
+            100.0, 221.0, 20.0
+        )
+
+        self.rocker_lengths = np.array([
+            100.0, 110.0, 120.0, 130.0, 140.0,
+            160.0, 180.0, 200.0, 220.0,
+        ])
+
+        self.support_E_step_deg = 10.0
 
     # --------------------------------------------------
     # Solutions
