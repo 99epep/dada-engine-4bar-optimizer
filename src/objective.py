@@ -9,32 +9,24 @@ from models import CandidateResult
 
 def evaluate_candidate(curve, config):
     """
-    Évalue un candidat.
-
-    Les filtres géométriques restent inchangés.
-
-    Le score final est construit en deux blocs :
-
-        Q_shape = qualité de la forme
-        Q_accel = qualité des trois transitions
-
-        score_base = 0.5 * Q_shape + 0.5 * Q_accel
-
-    puis :
-
-        score = score_base * symmetry_factor
-
-    Plus le score est élevé, meilleure est la solution.
+    Évalue un candidat avec les filtres géométriques,
+    puis le nouveau score.
     """
 
-    metrics = _compute_metrics(curve, config)
-
-    plateau_candidates = _find_plateau_candidates(
-        metrics,
+    metrics = _compute_metrics(
+        curve,
         config,
     )
 
+    plateau_candidates = (
+        _find_plateau_candidates(
+            metrics,
+            config,
+        )
+    )
+
     if not plateau_candidates:
+
         return CandidateResult(
             accepted=False,
             score=0.0,
@@ -46,8 +38,13 @@ def evaluate_candidate(curve, config):
 
     for plateau in plateau_candidates:
 
-        candidate = dict(metrics)
-        candidate.update(plateau)
+        candidate = dict(
+            metrics
+        )
+
+        candidate.update(
+            plateau
+        )
 
         ok, reason = _filter_2(
             candidate,
@@ -57,23 +54,34 @@ def evaluate_candidate(curve, config):
         if not ok:
             continue
 
-        score_data = _score_candidate(
-            candidate,
-            config,
+        score_data = (
+            _score_candidate(
+                candidate,
+                config,
+            )
         )
 
-        score = score_data["score"]
+        score = float(
+            score_data["score"]
+        )
 
         if (
             best_metrics is None
             or score > best_score
         ):
+
             best_score = score
 
-            best_metrics = candidate
-            best_metrics.update(score_data)
+            best_metrics = (
+                candidate
+            )
+
+            best_metrics.update(
+                score_data
+            )
 
     if best_metrics is None:
+
         return CandidateResult(
             accepted=False,
             score=0.0,
@@ -81,56 +89,106 @@ def evaluate_candidate(curve, config):
         )
 
     components = {
+
         "shape_quality":
-            best_metrics["shape_quality"],
+            best_metrics[
+                "shape_quality"
+            ],
 
         "plateau_error":
-            best_metrics["plateau_error"],
+            best_metrics[
+                "plateau_error"
+            ],
 
         "rapid_error":
-            best_metrics["rapid_error"],
+            best_metrics[
+                "rapid_error"
+            ],
 
         "slow_error":
-            best_metrics["slow_error"],
+            best_metrics[
+                "slow_error"
+            ],
 
         "acceleration_quality":
-            best_metrics["acceleration_quality"],
+            best_metrics[
+                "acceleration_quality"
+            ],
 
-        "acceleration_a1":
-            best_metrics["acceleration_a1"],
+        "acceleration_plateau_end":
+            best_metrics[
+                "acceleration_plateau_end"
+            ],
 
         "acceleration_a3":
-            best_metrics["acceleration_a3"],
+            best_metrics[
+                "acceleration_a3"
+            ],
 
-        "acceleration_a2":
-            best_metrics["acceleration_a2"],
+        "acceleration_plateau_start":
+            best_metrics[
+                "acceleration_plateau_start"
+            ],
 
-        "acceleration_q_a1":
-            best_metrics["acceleration_q_a1"],
+        "acceleration_q_plateau_end":
+            best_metrics[
+                "acceleration_q_plateau_end"
+            ],
 
         "acceleration_q_a3":
-            best_metrics["acceleration_q_a3"],
+            best_metrics[
+                "acceleration_q_a3"
+            ],
 
-        "acceleration_q_a2":
-            best_metrics["acceleration_q_a2"],
+        "acceleration_q_plateau_start":
+            best_metrics[
+                "acceleration_q_plateau_start"
+            ],
 
-        "symmetry_factor":
-            best_metrics["symmetry_factor"],
+        "slow_plateau_boundary_angle":
+            best_metrics[
+                "slow_plateau_boundary_angle"
+            ],
+
+        "rapid_center_angle":
+            best_metrics[
+                "rapid_center_angle"
+            ],
+
+        "rapid_width_deg":
+            best_metrics[
+                "rapid_width_deg"
+            ],
+
+        "slow_width_deg":
+            best_metrics[
+                "slow_width_deg"
+            ],
 
         "a1_angle":
-            best_metrics["a1_angle"],
+            best_metrics[
+                "a1_angle"
+            ],
 
         "a3_angle":
-            best_metrics["a3_angle"],
+            best_metrics[
+                "a3_angle"
+            ],
 
         "a2_angle":
-            best_metrics["a2_angle"],
+            best_metrics[
+                "a2_angle"
+            ],
 
         "ai_angle":
-            best_metrics["ai_angle"],
+            best_metrics[
+                "ai_angle"
+            ],
 
         "bisector_angle":
-            best_metrics["bisector_angle"],
+            best_metrics[
+                "bisector_angle"
+            ],
     }
 
     return CandidateResult(
@@ -139,6 +197,8 @@ def evaluate_candidate(curve, config):
         reject_reason=None,
         score_components=components,
     )
+
+
 
 
 
@@ -194,6 +254,7 @@ def _compute_metrics(curve, config):
         "acceleration": acceleration,
         "stroke": stroke,
     }
+
 
 
 
@@ -426,119 +487,185 @@ def _find_plateau_candidates(metrics, config):
 
 def _filter_2(metrics, config):
     """
-    Require exactly one velocity inversion in the half-cycle opposite
-    the selected immobile portion.
+    Filtre 2 — phase rapide centrée près de 0° ou 180°.
 
-    A3 is the sampled angle where |velocity| is minimum in that half.
-    Ai is the closest of A1/A2 to A3 using circular angular distance.
+    A3 est l'unique inversion de vitesse dans le demi-cycle opposé
+    au plateau.
 
-    The circular bisector between Ai and A3 must lie within ±10°
-    of either 0° or 180°.
+    Les deux phases actives sont ensuite :
+
+        plateau_end -> A3
+        A3 -> plateau_start
+
+    L'ordre rapide/lent est libre.
+
+    La phase rapide est celle dont la durée angulaire est la plus
+    courte. Son centre doit être dans la tolérance autour de
+    0° ou 180°.
     """
 
     theta = metrics["theta"]
     velocity = metrics["velocity"]
 
-    start_angle = metrics["plateau_start_angle"]
-    end_angle = metrics["plateau_end_angle"]
-    plateau_center = metrics["plateau_center"]
+    plateau_start = float(
+        metrics["plateau_start_angle"]
+    )
 
-    # Determine which half-cycle is opposite the immobile zone.
-    if abs(
-        _angular_distance(
-            plateau_center,
-            config.plateau_center_1_deg,
-        )
-    ) < abs(
-        _angular_distance(
-            plateau_center,
-            config.plateau_center_2_deg,
-        )
+    plateau_end = float(
+        metrics["plateau_end_angle"]
+    )
+
+    plateau_center = float(
+        metrics["plateau_center"]
+    )
+
+    # --------------------------------------------------------------
+    # Demi-cycle opposé au plateau.
+    # --------------------------------------------------------------
+
+    if _angular_distance(
+        plateau_center,
+        config.plateau_center_1_deg,
+    ) <= _angular_distance(
+        plateau_center,
+        config.plateau_center_2_deg,
     ):
-        # Immobile zone around 90° -> inspect 180°..360°.
+
         half_mask = (
             (theta >= 180.0)
             & (theta <= 360.0)
         )
+
     else:
-        # Immobile zone around 270° -> inspect 0°..180°.
+
         half_mask = (
             (theta >= 0.0)
             & (theta <= 180.0)
         )
 
-    indices = np.flatnonzero(half_mask)
+    indices = np.flatnonzero(
+        half_mask
+    )
 
     if len(indices) < 3:
         return False, "half-cycle"
 
-    half_velocity = velocity[indices]
+    half_velocity = velocity[
+        indices
+    ]
 
-    # Remove zero-valued samples before counting sign changes.
-    signs = np.sign(half_velocity)
-    non_zero = signs != 0.0
+    # --------------------------------------------------------------
+    # Une seule inversion de vitesse.
+    # --------------------------------------------------------------
 
-    sign_indices = indices[non_zero]
-    sign_values = signs[non_zero]
+    signs = np.sign(
+        half_velocity
+    )
+
+    non_zero = (
+        signs != 0.0
+    )
+
+    sign_values = signs[
+        non_zero
+    ]
 
     if len(sign_values) < 2:
         return False, "number of sign changes"
 
     change_positions = np.flatnonzero(
-        sign_values[1:] * sign_values[:-1] < 0.0
+        sign_values[1:]
+        * sign_values[:-1]
+        < 0.0
     )
 
     if len(change_positions) != 1:
         return False, "number of sign changes"
 
-    # A3 = angle of minimum absolute velocity in the selected half.
+    # --------------------------------------------------------------
+    # A3.
+    # --------------------------------------------------------------
+
     local_min = int(
-        np.argmin(np.abs(half_velocity))
+        np.argmin(
+            np.abs(
+                half_velocity
+            )
+        )
     )
 
-    a3 = float(theta[indices[local_min]])
-
-    a1 = float(start_angle)
-    a2 = float(end_angle)
-
-    # Closest endpoint to A3 using circular distance.
-    if _angular_distance(a1, a3) <= _angular_distance(a2, a3):
-        ai = a1
-    else:
-        ai = a2
-
-    # Midpoint of the shortest circular arc Ai -> A3.
-    delta = (
-        (a3 - ai + 180.0) % 360.0
-        - 180.0
-    )
-
-    bisector = (
-        ai + 0.5 * delta
+    a3 = float(
+        theta[
+            indices[local_min]
+        ]
     ) % 360.0
 
-    valid_bisector = False
+    layout = _phase_layout(
+        plateau_start,
+        plateau_end,
+        a3,
+        config.epsilon,
+    )
 
-    for target in config.bisector_targets_deg:
+    if layout is None:
+        return False, "phase-width"
 
-        if (
-            _angular_distance(
-                bisector,
-                target,
-            )
-            <= config.bisector_tolerance_deg
-        ):
-            valid_bisector = True
-            break
+    rapid_center = layout[
+        "rapid_center"
+    ]
 
-    if not valid_bisector:
+    valid_center = any(
+        _angular_distance(
+            rapid_center,
+            target,
+        )
+        <= config.bisector_tolerance_deg
+
+        for target
+        in config.bisector_targets_deg
+    )
+
+    if not valid_center:
         return False, "bisector"
 
+    # --------------------------------------------------------------
+    # Compatibilité + diagnostics.
+    # --------------------------------------------------------------
+
     metrics["a3_angle"] = a3
-    metrics["ai_angle"] = ai
-    metrics["bisector_angle"] = bisector
+
+    metrics["ai_angle"] = (
+        layout[
+            "rapid_plateau_boundary"
+        ]
+    )
+
+    metrics["bisector_angle"] = (
+        rapid_center
+    )
+
+    metrics["rapid_center_angle"] = (
+        rapid_center
+    )
+
+    metrics["rapid_width_deg"] = (
+        layout["rapid_width"]
+    )
+
+    metrics["slow_width_deg"] = (
+        layout["slow_width"]
+    )
+
+    metrics[
+        "slow_plateau_boundary_angle"
+    ] = (
+        layout[
+            "slow_plateau_boundary"
+        ]
+    )
 
     return True, None
+
 
 
 # ---------------------------------------------------------------------
@@ -547,389 +674,355 @@ def _filter_2(metrics, config):
 
 def _score_candidate(metrics, config):
     """
-    Score final.
+    Score final :
 
-    1. Qualité de forme :
-         1/3 plateau
-         1/3 phase rapide
-         1/3 phase lente
+        25 % forme
+        75 % accélérations
 
-    2. Accélérations :
-         A1, A3 et A2 sont normalisées INDIVIDUELLEMENT
-         avant leur moyenne.
+    Les trois accélérations sont normalisées individuellement.
 
-    3. Les deux blocs ont exactement le même poids.
+    L'interface plateau / phase lente reçoit un poids 2.
+    Les deux autres transitions reçoivent un poids 1.
 
-    4. Une petite pénalisation de dissymétrie est appliquée
-       autour de 0° / 180°.
+    L'ordre rapide/lent est libre.
     """
 
-    theta = metrics["theta"]
-    displacement = metrics["displacement"]
-    acceleration = metrics["acceleration"]
-    stroke = metrics["stroke"]
-
-    a3 = float(metrics["a3_angle"])
-
-    # --------------------------------------------------------------
-    # A1 / A2 idéaux déduits de A3.
-    # --------------------------------------------------------------
-
-    a1 = (
-        180.0 + a3
-    ) % 360.0
-
-    a2 = (
-        360.0 - a3
-    ) % 360.0
-
-    metrics["a1_angle"] = a1
-    metrics["a2_angle"] = a2
-
-    # --------------------------------------------------------------
-    # Coordonnée angulaire déroulée à partir de A2.
-    # --------------------------------------------------------------
-
-    u = (
-        theta - a2
-    ) % 360.0
-
-    width_1 = (
-        (a3 - a2)
-        % 360.0
+    theta = np.asarray(
+        metrics["theta"],
+        dtype=float,
     )
 
-    width_2 = (
-        (a1 - a3)
-        % 360.0
+    displacement = np.asarray(
+        metrics["displacement"],
+        dtype=float,
     )
 
-    if (
-        width_1 <= config.epsilon
-        or width_2 <= config.epsilon
-    ):
-        return {
-            "score": 0.0,
-            "shape_quality": 0.0,
-            "plateau_error": 1.0,
-            "rapid_error": 1.0,
-            "slow_error": 1.0,
-            "acceleration_quality": 0.0,
-            "acceleration_a1": 0.0,
-            "acceleration_a3": 0.0,
-            "acceleration_a2": 0.0,
-            "acceleration_q_a1": 0.0,
-            "acceleration_q_a3": 0.0,
-            "acceleration_q_a2": 0.0,
-            "symmetry_factor": 0.0,
-        }
+    acceleration = np.asarray(
+        metrics["acceleration"],
+        dtype=float,
+    )
 
-    # --------------------------------------------------------------
-    # Détermination du niveau du plateau.
-    # --------------------------------------------------------------
+    stroke = float(
+        metrics["stroke"]
+    )
 
     plateau_start = float(
         metrics["plateau_start_angle"]
+    ) % 360.0
+
+    plateau_end = float(
+        metrics["plateau_end_angle"]
+    ) % 360.0
+
+    a3 = float(
+        metrics["a3_angle"]
+    ) % 360.0
+
+    layout = _phase_layout(
+        plateau_start,
+        plateau_end,
+        a3,
+        config.epsilon,
     )
 
-    plateau_width = float(
-        metrics["plateau_width"]
-    )
-
-    plateau_relative = (
-        (theta - plateau_start)
-        % 360.0
-    )
-
-    plateau_mask = (
-        plateau_relative <= plateau_width
-    )
-
-    if not np.any(plateau_mask):
-        return {
-            "score": 0.0,
-            "shape_quality": 0.0,
-            "plateau_error": 1.0,
-            "rapid_error": 1.0,
-            "slow_error": 1.0,
-            "acceleration_quality": 0.0,
-            "acceleration_a1": 0.0,
-            "acceleration_a3": 0.0,
-            "acceleration_a2": 0.0,
-            "acceleration_q_a1": 0.0,
-            "acceleration_q_a3": 0.0,
-            "acceleration_q_a2": 0.0,
-            "symmetry_factor": 0.0,
-        }
-
-    plateau_values = displacement[plateau_mask]
-
-    plateau_level = float(
-        np.mean(plateau_values)
-    )
-
-    x_min = float(np.min(displacement))
-    x_max = float(np.max(displacement))
-
-    plateau_is_max = (
-        abs(plateau_level - x_max)
-        <=
-        abs(plateau_level - x_min)
-    )
+    if layout is None:
+        return _zero_score()
 
     # --------------------------------------------------------------
     # Déplacement normalisé.
+    #
+    # Plateau = 1
+    # extrême opposé = 0
     # --------------------------------------------------------------
 
+    plateau_relative = (
+        theta - plateau_start
+    ) % 360.0
+
+    plateau_width = (
+        plateau_end - plateau_start
+    ) % 360.0
+
+    plateau_mask_real = (
+        plateau_relative
+        <= plateau_width
+        + config.epsilon
+    )
+
+    if not np.any(
+        plateau_mask_real
+    ):
+        return _zero_score()
+
+    plateau_level = float(
+        np.mean(
+            displacement[
+                plateau_mask_real
+            ]
+        )
+    )
+
+    x_min = float(
+        np.min(displacement)
+    )
+
+    x_max = float(
+        np.max(displacement)
+    )
+
+    plateau_is_max = (
+        abs(
+            plateau_level - x_max
+        )
+        <=
+        abs(
+            plateau_level - x_min
+        )
+    )
+
     if plateau_is_max:
+
         x_norm = (
             displacement - x_min
-        ) / stroke
+        ) / max(
+            stroke,
+            config.epsilon,
+        )
+
     else:
+
         x_norm = (
             x_max - displacement
-        ) / stroke
-
-    x_norm = np.clip(
-        x_norm,
-        -1.0,
-        2.0,
-    )
+        ) / max(
+            stroke,
+            config.epsilon,
+        )
 
     # --------------------------------------------------------------
     # Loi idéale.
     #
-    # A2 -> A3 : 1 -> 0
-    # A3 -> A1 : 0 -> 1
-    # plateau   : 1
+    # Elle utilise les trois transitions réelles :
     #
-    # Le plateau est traité avec sa vraie position mesurée,
-    # tandis que les deux phases actives utilisent A3.
+    # plateau_end -> A3 -> plateau_start
+    #
+    # donc aucune hypothèse sur l'ordre rapide/lent.
     # --------------------------------------------------------------
 
-    ideal = np.empty_like(
-        x_norm,
+    (
+        ideal,
+        mask_first,
+        mask_second,
+        mask_plateau,
+    ) = _build_ideal_curve(
+        theta,
+        plateau_start,
+        plateau_end,
+        a3,
+        config.epsilon,
     )
 
-    mask_rapid = (
-        u <= width_1
-    )
+    if ideal is None:
+        return _zero_score()
 
-    mask_slow = (
-        (u > width_1)
-        &
-        (
-            u <= width_1 + width_2
+    if layout["first_is_rapid"]:
+
+        mask_rapid = (
+            mask_first
         )
-    )
 
-    mask_plateau = ~(
-        mask_rapid | mask_slow
-    )
+        mask_slow = (
+            mask_second
+        )
 
-    ideal[mask_rapid] = (
-        1.0
-        - u[mask_rapid] / width_1
-    )
+    else:
 
-    local_slow = (
-        u[mask_slow]
-        - width_1
-    )
+        mask_rapid = (
+            mask_second
+        )
 
-    ideal[mask_slow] = (
-        local_slow / width_2
-    )
-
-    ideal[mask_plateau] = 1.0
+        mask_slow = (
+            mask_first
+        )
 
     # --------------------------------------------------------------
     # RMS séparés.
-    #
-    # Important :
-    # aucune phase ne peut être "cachée" par une autre.
     # --------------------------------------------------------------
 
     plateau_error = _rms(
-        x_norm[mask_plateau] - ideal[mask_plateau]
+        x_norm[mask_plateau]
+        - ideal[mask_plateau]
     )
 
     rapid_error = _rms(
-        x_norm[mask_rapid] - ideal[mask_rapid]
+        x_norm[mask_rapid]
+        - ideal[mask_rapid]
     )
 
     slow_error = _rms(
-        x_norm[mask_slow] - ideal[mask_slow]
+        x_norm[mask_slow]
+        - ideal[mask_slow]
     )
 
-    # Normalisation conservatrice des erreurs.
     shape_error = (
         plateau_error
         + rapid_error
         + slow_error
     ) / 3.0
 
-    shape_quality = np.clip(
-        1.0 - shape_error,
-        0.0,
-        1.0,
+    shape_quality = float(
+        np.clip(
+            1.0 - shape_error,
+            0.0,
+            1.0,
+        )
     )
 
     # --------------------------------------------------------------
-    # Accélérations aux trois changements de phase.
+    # Accélérations.
     #
-    # On prend la valeur maximale locale de |a| dans une petite
-    # fenêtre autour de chaque transition. Cela évite que le
-    # résultat dépende d'un unique point d'échantillonnage.
+    # Normalisation par la course AVANT comparaison à l'idéal.
+    # Les deux accélérations sont ainsi exprimées dans la même
+    # grandeur normalisée.
     # --------------------------------------------------------------
 
-    accel_a1 = _local_peak_acceleration(
-        theta,
-        acceleration,
-        a1,
+    normalized_acceleration = (
+        acceleration
+        / max(
+            stroke,
+            config.epsilon,
+        )
     )
 
-    accel_a3 = _local_peak_acceleration(
+    ideal_velocity = np.gradient(
+        ideal,
         theta,
-        acceleration,
-        a3,
+        edge_order=2,
     )
 
-    accel_a2 = _local_peak_acceleration(
+    ideal_acceleration = np.gradient(
+        ideal_velocity,
         theta,
-        acceleration,
-        a2,
+        edge_order=2,
     )
 
-    # --------------------------------------------------------------
-    # Accélération idéale discrétisée.
-    #
-    # L'idéal mathématique possède des transitions instantanées,
-    # donc une accélération infinie.
-    #
-    # Pour rendre le problème numérique et indépendant de la
-    # géométrie, on utilise la même loi idéale échantillonnée sur
-    # les mêmes angles que le candidat.
-    # --------------------------------------------------------------
+    transition_angles = {
+        "plateau_end":
+            plateau_end,
 
-    ideal_acceleration = _ideal_acceleration(
-        theta,
-        a1,
-        a3,
-        a2,
-        plateau_is_max,
-    )
+        "a3":
+            a3,
 
-    ideal_a1 = _local_peak_acceleration(
-        theta,
-        ideal_acceleration,
-        a1,
-    )
+        "plateau_start":
+            plateau_start,
+    }
 
-    ideal_a3 = _local_peak_acceleration(
-        theta,
-        ideal_acceleration,
-        a3,
-    )
+    actual_accel = {
+        name:
+            _acceleration_at_angle(
+                theta,
+                normalized_acceleration,
+                angle,
+            )
 
-    ideal_a2 = _local_peak_acceleration(
-        theta,
-        ideal_acceleration,
-        a2,
-    )
+        for name, angle
+        in transition_angles.items()
+    }
+
+    ideal_accel = {
+        name:
+            _acceleration_at_angle(
+                theta,
+                ideal_acceleration,
+                angle,
+            )
+
+        for name, angle
+        in transition_angles.items()
+    }
 
     # --------------------------------------------------------------
     # NORMALISATION INDIVIDUELLE.
-    #
-    # C'est volontairement :
-    #
-    #     q1 = a1 / ideal_a1
-    #     q3 = a3 / ideal_a3
-    #     q2 = a2 / ideal_a2
-    #
-    # puis seulement ensuite :
-    #
-    #     Q_A = (q1 + q3 + q2) / 3
-    #
-    # On n'additionne donc jamais les trois accélérations brutes.
     # --------------------------------------------------------------
 
-    q_a1 = _acceleration_quality(
-        accel_a1,
-        ideal_a1,
-    )
+    q = {
+        name:
+            _acceleration_quality(
+                actual_accel[name],
+                ideal_accel[name],
+            )
 
-    q_a3 = _acceleration_quality(
-        accel_a3,
-        ideal_a3,
-    )
-
-    q_a2 = _acceleration_quality(
-        accel_a2,
-        ideal_a2,
-    )
-
-    acceleration_quality = (
-        q_a1
-        + q_a3
-        + q_a2
-    ) / 3.0
+        for name
+        in transition_angles
+    }
 
     # --------------------------------------------------------------
-    # Symétrie.
+    # PONDÉRATION.
     #
-    # La meilleure géométrie doit présenter une transition rapide
-    # centrée autour de 0° ou 180°.
+    # La borne adjacente à la phase lente vaut 2.
     #
-    # On utilise le bisecteur déjà calculé par le filtre 2.
+    # On ne suppose PAS qu'il s'agit de plateau_start.
     # --------------------------------------------------------------
 
-    bisector = float(
-        metrics["bisector_angle"]
-    )
+    if (
+        layout[
+            "slow_plateau_boundary_name"
+        ]
+        == "plateau_end"
+    ):
 
-    d0 = _angular_distance(
-        bisector,
-        0.0,
-    )
+        weights = {
+            "plateau_end": 2.0,
+            "a3": 1.0,
+            "plateau_start": 1.0,
+        }
 
-    d180 = _angular_distance(
-        bisector,
-        180.0,
-    )
+    else:
 
-    symmetry_error = min(
-        d0,
-        d180,
-    )
+        weights = {
+            "plateau_end": 1.0,
+            "a3": 1.0,
+            "plateau_start": 2.0,
+        }
 
-    symmetry_factor = np.clip(
-        1.0
-        - symmetry_error / 15.0,
-        0.0,
-        1.0,
+    acceleration_quality = float(
+        sum(
+            weights[name]
+            * q[name]
+
+            for name
+            in q
+        )
+        /
+        sum(
+            weights.values()
+        )
     )
 
     # --------------------------------------------------------------
-    # Score final : 50 % forme + 50 % accélération.
+    # SCORE FINAL.
     # --------------------------------------------------------------
 
-    score_base = (
-        0.5 * shape_quality
+    score = float(
+        0.25 * shape_quality
         +
-        0.5 * acceleration_quality
+        0.75 * acceleration_quality
     )
 
-    score = (
-        score_base
-        * symmetry_factor
+    # Compatibilité des diagnostics.
+    metrics["a1_angle"] = (
+        plateau_start
+    )
+
+    metrics["a2_angle"] = (
+        plateau_end
     )
 
     return {
-        "score": float(score),
+        "score":
+            score,
 
         "shape_quality":
-            float(shape_quality),
+            shape_quality,
 
         "plateau_error":
             float(plateau_error),
@@ -941,29 +1034,73 @@ def _score_candidate(metrics, config):
             float(slow_error),
 
         "acceleration_quality":
-            float(acceleration_quality),
+            acceleration_quality,
 
-        "acceleration_a1":
-            float(accel_a1),
+        "acceleration_plateau_end":
+            float(
+                actual_accel[
+                    "plateau_end"
+                ]
+            ),
 
         "acceleration_a3":
-            float(accel_a3),
+            float(
+                actual_accel[
+                    "a3"
+                ]
+            ),
 
-        "acceleration_a2":
-            float(accel_a2),
+        "acceleration_plateau_start":
+            float(
+                actual_accel[
+                    "plateau_start"
+                ]
+            ),
 
-        "acceleration_q_a1":
-            float(q_a1),
+        "acceleration_q_plateau_end":
+            float(
+                q["plateau_end"]
+            ),
 
         "acceleration_q_a3":
-            float(q_a3),
+            float(
+                q["a3"]
+            ),
 
-        "acceleration_q_a2":
-            float(q_a2),
+        "acceleration_q_plateau_start":
+            float(
+                q["plateau_start"]
+            ),
 
-        "symmetry_factor":
-            float(symmetry_factor),
+        "slow_plateau_boundary_angle":
+            float(
+                layout[
+                    "slow_plateau_boundary"
+                ]
+            ),
+
+        "rapid_center_angle":
+            float(
+                layout[
+                    "rapid_center"
+                ]
+            ),
+
+        "rapid_width_deg":
+            float(
+                layout[
+                    "rapid_width"
+                ]
+            ),
+
+        "slow_width_deg":
+            float(
+                layout[
+                    "slow_width"
+                ]
+            ),
     }
+
 
 def _rms(values):
     values = np.asarray(
@@ -1178,6 +1315,587 @@ def _acceleration_quality(
         )
     )
 
+
+def _rms(values):
+    values = np.asarray(
+        values,
+        dtype=float,
+    )
+
+    if values.size == 0:
+        return 1.0
+
+    return float(
+        np.sqrt(
+            np.mean(
+                values * values
+            )
+        )
+    )
+
+
+def _angular_distance(a, b):
+    return abs(
+        (
+            a - b + 180.0
+        ) % 360.0
+        - 180.0
+    )
+
+
+def _local_peak_acceleration(
+    theta,
+    acceleration,
+    angle,
+):
+    """
+    Maximum |acceleration| dans une fenêtre locale.
+
+    La fenêtre est choisie à partir du pas angulaire réel afin
+    que le calcul fonctionne aussi bien en mode 5° qu'en haute
+    définition.
+    """
+
+    theta = np.asarray(
+        theta,
+        dtype=float,
+    )
+
+    acceleration = np.asarray(
+        acceleration,
+        dtype=float,
+    )
+
+    if len(theta) == 0:
+        return 0.0
+
+    if len(theta) > 1:
+        step = abs(
+            float(theta[1] - theta[0])
+        )
+    else:
+        step = 1.0
+
+    half_window = max(
+        step * 1.5,
+        1.0,
+    )
+
+    distances = np.array([
+        _angular_distance(
+            float(t),
+            angle,
+        )
+        for t in theta
+    ])
+
+    mask = (
+        distances <= half_window
+    )
+
+    if not np.any(mask):
+        index = int(
+            np.argmin(distances)
+        )
+
+        return float(
+            abs(acceleration[index])
+        )
+
+    return float(
+        np.max(
+            np.abs(
+                acceleration[mask]
+            )
+        )
+    )
+
+
+def _ideal_acceleration(
+    theta,
+    a1,
+    a3,
+    a2,
+    plateau_is_max,
+):
+    """
+    Accélération numérique de la loi idéale.
+
+    On construit d'abord la position idéale sur la grille réelle,
+    puis on applique exactement les mêmes dérivées numériques
+    que pour le candidat.
+
+    Cela évite toute dépendance à une unité arbitraire.
+    """
+
+    theta = np.asarray(
+        theta,
+        dtype=float,
+    )
+
+    u = (
+        theta - a2
+    ) % 360.0
+
+    width_1 = (
+        (a3 - a2)
+        % 360.0
+    )
+
+    width_2 = (
+        (a1 - a3)
+        % 360.0
+    )
+
+    ideal = np.empty_like(
+        theta,
+        dtype=float,
+    )
+
+    mask_1 = (
+        u <= width_1
+    )
+
+    mask_2 = (
+        (u > width_1)
+        &
+        (
+            u <= width_1 + width_2
+        )
+    )
+
+    mask_3 = ~(
+        mask_1 | mask_2
+    )
+
+    ideal[mask_1] = (
+        1.0
+        - u[mask_1] / width_1
+    )
+
+    ideal[mask_2] = (
+        u[mask_2] - width_1
+    ) / width_2
+
+    ideal[mask_3] = 1.0
+
+    if len(theta) < 5:
+        return np.zeros_like(
+            ideal
+        )
+
+    velocity = np.gradient(
+        ideal,
+        theta,
+        edge_order=2,
+    )
+
+    return np.gradient(
+        velocity,
+        theta,
+        edge_order=2,
+    )
+
+
+def _acceleration_quality(
+    actual,
+    ideal,
+):
+    """
+    Compare une accélération à sa propre référence.
+
+    Chaque transition est traitée séparément.
+
+    Une accélération réelle au moins égale à la référence
+    discrète reçoit la note maximale 1.
+    """
+
+    actual = abs(
+        float(actual)
+    )
+
+    ideal = abs(
+        float(ideal)
+    )
+
+    if ideal <= 1e-15:
+        return 1.0
+
+    return float(
+        np.clip(
+            actual / ideal,
+            0.0,
+            1.0,
+        )
+    )
+
+def _phase_layout(
+    plateau_start,
+    plateau_end,
+    a3,
+    epsilon,
+):
+    """
+    Décompose le cycle actif dans le sens croissant de theta :
+
+        plateau_end -> A3 -> plateau_start
+
+    La phase la plus courte est appelée rapide.
+    La plus longue est appelée lente.
+
+    Retourne notamment quelle borne du plateau est adjacente
+    à la phase lente.
+    """
+
+    plateau_start = (
+        float(plateau_start)
+        % 360.0
+    )
+
+    plateau_end = (
+        float(plateau_end)
+        % 360.0
+    )
+
+    a3 = (
+        float(a3)
+        % 360.0
+    )
+
+    first_width = (
+        a3 - plateau_end
+    ) % 360.0
+
+    second_width = (
+        plateau_start - a3
+    ) % 360.0
+
+    if (
+        first_width <= epsilon
+        or second_width <= epsilon
+        or (
+            first_width
+            + second_width
+        )
+        >= 360.0 - epsilon
+    ):
+
+        return None
+
+    first_is_rapid = (
+        first_width
+        <= second_width
+    )
+
+    if first_is_rapid:
+
+        rapid_width = (
+            first_width
+        )
+
+        slow_width = (
+            second_width
+        )
+
+        rapid_start = (
+            plateau_end
+        )
+
+        rapid_plateau_boundary = (
+            plateau_end
+        )
+
+        slow_plateau_boundary = (
+            plateau_start
+        )
+
+        slow_plateau_boundary_name = (
+            "plateau_start"
+        )
+
+    else:
+
+        rapid_width = (
+            second_width
+        )
+
+        slow_width = (
+            first_width
+        )
+
+        rapid_start = (
+            a3
+        )
+
+        rapid_plateau_boundary = (
+            plateau_start
+        )
+
+        slow_plateau_boundary = (
+            plateau_end
+        )
+
+        slow_plateau_boundary_name = (
+            "plateau_end"
+        )
+
+    rapid_center = (
+        rapid_start
+        + 0.5 * rapid_width
+    ) % 360.0
+
+    return {
+        "first_width":
+            first_width,
+
+        "second_width":
+            second_width,
+
+        "first_is_rapid":
+            first_is_rapid,
+
+        "rapid_width":
+            rapid_width,
+
+        "slow_width":
+            slow_width,
+
+        "rapid_center":
+            rapid_center,
+
+        "rapid_plateau_boundary":
+            rapid_plateau_boundary,
+
+        "slow_plateau_boundary":
+            slow_plateau_boundary,
+
+        "slow_plateau_boundary_name":
+            slow_plateau_boundary_name,
+    }
+
+
+def _build_ideal_curve(
+    theta,
+    plateau_start,
+    plateau_end,
+    a3,
+    epsilon,
+):
+    """
+    Loi idéale normalisée :
+
+        plateau = 1
+
+        plateau_end -> A3
+            1 -> 0
+
+        A3 -> plateau_start
+            0 -> 1
+
+    L'ordre rapide/lent n'intervient pas dans la construction.
+    """
+
+    theta = np.asarray(
+        theta,
+        dtype=float,
+    )
+
+    width_first = (
+        a3 - plateau_end
+    ) % 360.0
+
+    width_second = (
+        plateau_start - a3
+    ) % 360.0
+
+    if (
+        width_first <= epsilon
+        or width_second <= epsilon
+    ):
+
+        return (
+            None,
+            None,
+            None,
+            None,
+        )
+
+    u = (
+        theta - plateau_end
+    ) % 360.0
+
+    mask_first = (
+        u
+        <= width_first
+        + epsilon
+    )
+
+    mask_second = (
+        (
+            u
+            > width_first
+            + epsilon
+        )
+        &
+        (
+            u
+            <= (
+                width_first
+                + width_second
+                + epsilon
+            )
+        )
+    )
+
+    mask_plateau = ~(
+        mask_first
+        | mask_second
+    )
+
+    ideal = np.ones_like(
+        theta,
+        dtype=float,
+    )
+
+    ideal[mask_first] = (
+        1.0
+        -
+        u[mask_first]
+        / width_first
+    )
+
+    local_second = (
+        u[mask_second]
+        - width_first
+    )
+
+    ideal[mask_second] = (
+        local_second
+        / width_second
+    )
+
+    return (
+        ideal,
+        mask_first,
+        mask_second,
+        mask_plateau,
+    )
+
+
+def _acceleration_at_angle(
+    theta,
+    acceleration,
+    angle,
+):
+    """
+    Valeur absolue de l'accélération à l'angle exact demandé.
+
+    Interpolation circulaire linéaire.
+
+    Aucun maximum dans une fenêtre.
+    """
+
+    theta = np.asarray(
+        theta,
+        dtype=float,
+    )
+
+    acceleration = np.asarray(
+        acceleration,
+        dtype=float,
+    )
+
+    if len(theta) == 0:
+        return 0.0
+
+    t = np.mod(
+        theta,
+        360.0,
+    )
+
+    order = np.argsort(
+        t
+    )
+
+    t = t[order]
+
+    a = acceleration[
+        order
+    ]
+
+    # Élimination du doublon 0° / 360°.
+    unique_t, indices = np.unique(
+        t,
+        return_index=True,
+    )
+
+    t = unique_t
+
+    a = a[
+        indices
+    ]
+
+    if len(t) == 1:
+
+        return float(
+            abs(a[0])
+        )
+
+    target = (
+        float(angle)
+        % 360.0
+    )
+
+    t_ext = np.concatenate((
+        t[-1:] - 360.0,
+        t,
+        t[:1] + 360.0,
+    ))
+
+    a_ext = np.concatenate((
+        a[-1:],
+        a,
+        a[:1],
+    ))
+
+    value = np.interp(
+        target,
+        t_ext,
+        a_ext,
+    )
+
+    return float(
+        abs(value)
+    )
+
+
+def _zero_score():
+    return {
+        "score": 0.0,
+
+        "shape_quality": 0.0,
+
+        "plateau_error": 1.0,
+        "rapid_error": 1.0,
+        "slow_error": 1.0,
+
+        "acceleration_quality": 0.0,
+
+        "acceleration_plateau_end": 0.0,
+        "acceleration_a3": 0.0,
+        "acceleration_plateau_start": 0.0,
+
+        "acceleration_q_plateau_end": 0.0,
+        "acceleration_q_a3": 0.0,
+        "acceleration_q_plateau_start": 0.0,
+
+        "slow_plateau_boundary_angle": 0.0,
+
+        "rapid_center_angle": 0.0,
+        "rapid_width_deg": 0.0,
+        "slow_width_deg": 0.0,
+    }
+
 def _curve_deviation(metrics, config):
     """
     Compatibilité avec l'ancienne API.
@@ -1192,6 +1910,7 @@ def _curve_deviation(metrics, config):
     return float(
         1.0 - data["shape_quality"]
     )
+
 
 
 
