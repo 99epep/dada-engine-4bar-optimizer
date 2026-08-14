@@ -105,6 +105,38 @@ def load_results(filename="results.npz"):
     }
 
 
+def save_refined_results(solutions_E, solutions_F, filename="refined_results.npz"):
+    """Save level-2 results in a format separate from ``results.npz``."""
+    filename = Path(filename)
+    metadata = {
+        "format": "dada-refined-results-v2",
+        "E": [],
+        "F": [],
+    }
+    arrays = {}
+    for family, solutions in (("E", solutions_E), ("F", solutions_F)):
+        for final_index, solution in enumerate(solutions):
+            prefix = f"{family}_{final_index}"
+            metadata[family].append(solution.to_metadata(final_index))
+            for name in ("theta", "x", "y", "displacement", "velocity"):
+                arrays[f"{prefix}_{name}"] = np.asarray(
+                    getattr(solution.curve, name)
+                )
+    arrays["metadata"] = np.array(json.dumps(metadata), dtype=object)
+    np.savez_compressed(filename, **arrays)
+    return filename
+
+
+def load_refined_results(filename="refined_results.npz"):
+    """Load and validate a level-2 result archive."""
+    data = np.load(Path(filename), allow_pickle=True)
+    metadata = json.loads(str(data["metadata"].item()))
+    if metadata.get("format") != "dada-refined-results-v2":
+        data.close()
+        raise ValueError("Unsupported refined result format")
+    return {"metadata": metadata, "data": data}
+
+
 def _serialize_solutions(solutions):
     result = []
 
@@ -147,4 +179,6 @@ def _serialize_solutions(solutions):
 __all__ = [
     "save_results",
     "load_results",
+    "save_refined_results",
+    "load_refined_results",
 ]

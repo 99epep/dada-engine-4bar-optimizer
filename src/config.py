@@ -25,6 +25,9 @@ class SolverConfig:
     angle_end_deg: float = 360.0
     angle_step_deg: float = 2.0
 
+    # Niveau 2 : résolution réservée aux courbes et métriques finales.
+    refinement_angle_step_deg: float = 0.1
+
     # --------------------------------------------------
     # Espace de recherche
     # --------------------------------------------------
@@ -82,6 +85,9 @@ class SolverConfig:
     # --------------------------------------------------
 
     plateau_max_amplitude_ratio: float = 0.0025
+
+    # Plateau physique de la machine complète, indépendant du filtre 1.
+    real_plateau_max_amplitude_ratio: float = 0.0025
 
     plateau_center_1_deg: float = 90.0
     plateau_center_2_deg: float = 270.0

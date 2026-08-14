@@ -977,9 +977,9 @@ def _score_candidate(metrics, config):
     # ---------------------------------------------------------------
 
     score = float(
-        0.25 * shape_quality
+        0.35 * shape_quality
         +
-        0.75 * acceleration_quality
+        0.65 * acceleration_quality
     )
 
     # Compatibilité des diagnostics.
