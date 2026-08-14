@@ -75,13 +75,13 @@ class SolverConfig:
     # Solutions
     # --------------------------------------------------
 
-    max_solutions: int = 20
+    max_solutions: int = 100
 
     # --------------------------------------------------
     # Filtre 1 : zone immobile
     # --------------------------------------------------
 
-    plateau_max_amplitude_ratio: float = 0.005
+    plateau_max_amplitude_ratio: float = 0.0025
 
     plateau_center_1_deg: float = 90.0
     plateau_center_2_deg: float = 270.0
