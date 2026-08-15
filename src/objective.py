@@ -722,6 +722,12 @@ def _score_candidate(metrics, config):
     a1 = (180.0 + a3) % 360.0
     a2 = (360.0 - a3) % 360.0
 
+    # Persist the ideal landmarks before any possible early return (notably
+    # the degenerate A3=0°/180° cases). evaluate_candidate always exposes
+    # these diagnostics, including for a valid candidate whose score is zero.
+    metrics["a1_angle"] = a1
+    metrics["a2_angle"] = a2
+
     # The ideal law is read in the crank rotation direction. When A3 lies in
     # the second half-cycle the active sequence is reversed:
     #
@@ -999,15 +1005,6 @@ def _score_candidate(metrics, config):
         0.35 * shape_quality
         +
         0.65 * acceleration_quality
-    )
-
-    # Compatibilité des diagnostics.
-    metrics["a1_angle"] = (
-        a1
-    )
-
-    metrics["a2_angle"] = (
-        a2
     )
 
     return {
