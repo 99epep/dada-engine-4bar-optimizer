@@ -255,8 +255,14 @@ def detect_real_plateau(curve, score_components, config):
     step = float(theta[1] - theta[0])
     a1 = float(score_components["a1_angle"])
     a2 = float(score_components["a2_angle"])
-    expected_width = (a2 - a1) % 360.0
-    expected = ((theta - a1) % 360.0) <= expected_width + config.epsilon
+    forward_width = (a2 - a1) % 360.0
+    if forward_width <= 180.0:
+        expected_start, expected_width = a1, forward_width
+    else:
+        expected_start, expected_width = a2, 360.0 - forward_width
+    expected = (
+        (theta - expected_start) % 360.0
+    ) <= expected_width + config.epsilon
     indices = np.flatnonzero(expected)
     if indices.size == 0:
         raise ValueError("No samples in the expected plateau neighbourhood")

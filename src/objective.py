@@ -674,8 +674,8 @@ def _score_candidate(metrics, config):
     """
     Score final :
 
-        25 % forme
-        75 % accélérations
+        35 % forme
+        65 % accélérations
 
     Les trois accélérations sont normalisées individuellement.
 
@@ -704,11 +704,11 @@ def _score_candidate(metrics, config):
         metrics["stroke"]
     )
 
-    plateau_start = float(
+    detected_plateau_start = float(
         metrics["plateau_start_angle"]
     ) % 360.0
 
-    plateau_end = float(
+    detected_plateau_end = float(
         metrics["plateau_end_angle"]
     ) % 360.0
 
@@ -716,9 +716,27 @@ def _score_candidate(metrics, config):
         metrics["a3_angle"]
     ) % 360.0
 
+    # A1 and A2 belong to the ideal motion law. They are derived solely from
+    # A3 and are deliberately independent from the plateau boundaries found
+    # by filter 1.
+    a1 = (180.0 + a3) % 360.0
+    a2 = (360.0 - a3) % 360.0
+
+    # The ideal law is read in the crank rotation direction. When A3 lies in
+    # the second half-cycle the active sequence is reversed:
+    #
+    #   A3 <= 180° : A2 -> A3 -> A1, plateau A1 -> A2
+    #   A3 >  180° : A1 -> A3 -> A2, plateau A2 -> A1
+    if a3 <= 180.0:
+        ideal_plateau_start = a1
+        ideal_plateau_end = a2
+    else:
+        ideal_plateau_start = a2
+        ideal_plateau_end = a1
+
     layout = _phase_layout(
-        plateau_start,
-        plateau_end,
+        ideal_plateau_start,
+        ideal_plateau_end,
         a3,
         config.epsilon,
     )
@@ -734,11 +752,11 @@ def _score_candidate(metrics, config):
     # ---------------------------------------------------------------
 
     plateau_relative = (
-        theta - plateau_start
+        theta - detected_plateau_start
     ) % 360.0
 
     plateau_width = (
-        plateau_end - plateau_start
+        detected_plateau_end - detected_plateau_start
     ) % 360.0
 
     plateau_mask_real = (
@@ -799,9 +817,10 @@ def _score_candidate(metrics, config):
     # ---------------------------------------------------------------
     # Loi idéale.
     #
-    # Elle utilise les trois transitions réelles :
+    # Elle utilise les trois transitions idéales déduites de A3 :
     #
-    # plateau_end -> A3 -> plateau_start
+    # A2 -> A3 -> A1 when A3 <= 180°,
+    # A1 -> A3 -> A2 when A3 > 180°.
     #
     # donc aucune hypothèse sur l'ordre rapide/lent.
     # ---------------------------------------------------------------
@@ -813,8 +832,8 @@ def _score_candidate(metrics, config):
         mask_plateau,
     ) = _build_ideal_curve(
         theta,
-        plateau_start,
-        plateau_end,
+        ideal_plateau_start,
+        ideal_plateau_end,
         a3,
         config.epsilon,
     )
@@ -910,9 +929,9 @@ def _score_candidate(metrics, config):
     # ========================================================
     
     transition_angles = np.array([
-        plateau_end,
+        ideal_plateau_end,
         a3,
-        plateau_start,
+        ideal_plateau_start,
     ], dtype=np.float64)
     
     transition_names = [
@@ -984,11 +1003,11 @@ def _score_candidate(metrics, config):
 
     # Compatibilité des diagnostics.
     metrics["a1_angle"] = (
-        plateau_start
+        a1
     )
 
     metrics["a2_angle"] = (
-        plateau_end
+        a2
     )
 
     return {

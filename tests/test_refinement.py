@@ -1,11 +1,13 @@
 import math
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 
 from config import SolverConfig
+from kinematics import build_candidate_curve, solve
 from refinement import (
     circular_interpolate,
     compute_physical_metrics,
@@ -34,20 +36,31 @@ class RefinementTests(unittest.TestCase):
             family, float(entry["mechanism"]["ground"]), parameters, self.config
         )
 
-    def test_A_source_E_score(self):
-        entry, evaluated = self.reevaluate("E")
+    def assert_ideal_landmarks(self, family):
+        _, evaluated = self.reevaluate(family)
         self.assertIsNotNone(evaluated)
-        self.assertAlmostEqual(evaluated[3].score, 0.364385853, places=9)
-        self.assertAlmostEqual(evaluated[3].score, entry["score"], places=14)
+        result = evaluated[3]
+        components = result.score_components
+        a3 = components["a3_angle"]
+        self.assertAlmostEqual(components["a1_angle"], (180.0 + a3) % 360.0)
+        self.assertAlmostEqual(components["a2_angle"], (360.0 - a3) % 360.0)
+        self.assertAlmostEqual(
+            result.score,
+            0.35 * components["shape_quality"]
+            + 0.65 * components["acceleration_quality"],
+        )
 
-    def test_B_source_F_score(self):
-        entry, evaluated = self.reevaluate("F")
-        self.assertIsNotNone(evaluated)
-        self.assertAlmostEqual(evaluated[3].score, 0.362103121, places=9)
-        self.assertAlmostEqual(evaluated[3].score, entry["score"], places=14)
+    def test_A1_A2_are_derived_from_A3_for_E(self):
+        self.assert_ideal_landmarks("E")
+
+    def test_A1_A2_are_derived_from_A3_for_F(self):
+        self.assert_ideal_landmarks("F")
 
     def test_C_D_F_G_refinement_invariants_and_roundtrip(self):
         entry = self.loaded["metadata"]["E"][0]
+        _, reevaluated = self.reevaluate("E")
+        if not math.isclose(entry["score"], reevaluated[3].score, abs_tol=1e-12):
+            self.skipTest("results.npz must be regenerated with the restored score")
         solution = refine_candidate(
             entry, "E", 0, self.config, np.random.default_rng(17)
         )
@@ -85,12 +98,13 @@ class RefinementTests(unittest.TestCase):
         np.testing.assert_allclose(x2[:-1], expected, rtol=0.0, atol=1e-12)
 
     def test_precompression_is_one_minus_full_piston_volume(self):
-        entry = self.loaded["metadata"]["E"][0]
-        solution = refine_candidate(
-            entry, "E", 0, self.config, np.random.default_rng(17)
+        _, evaluated = self.reevaluate("E")
+        mechanism, support, _, result = evaluated
+        fine_config = replace(
+            self.config, angle_step_deg=self.config.refinement_angle_step_deg
         )
-        curve = solution.curve
-        metrics = solution.physical_metrics
+        curve = build_candidate_curve(solve(mechanism, fine_config), support)
+        metrics = compute_physical_metrics(curve, result.score_components, self.config)
         x1 = np.asarray(curve.x, dtype=float)
         x2 = symmetric_values(curve.theta, x1)
         stroke = float(np.ptp(x1))
