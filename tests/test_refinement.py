@@ -7,6 +7,7 @@ import numpy as np
 
 from config import SolverConfig
 from refinement import (
+    circular_interpolate,
     compute_physical_metrics,
     evaluate_geometry,
     refine_candidate,
@@ -83,16 +84,41 @@ class RefinementTests(unittest.TestCase):
         expected = curve.x[:-1][indices]
         np.testing.assert_allclose(x2[:-1], expected, rtol=0.0, atol=1e-12)
 
-    def test_precompression_has_physical_direction(self):
-        entry, evaluated = self.reevaluate("E")
-        metrics = compute_physical_metrics(
-            evaluated[2], evaluated[3].score_components, self.config
+    def test_precompression_is_one_minus_full_piston_volume(self):
+        entry = self.loaded["metadata"]["E"][0]
+        solution = refine_candidate(
+            entry, "E", 0, self.config, np.random.default_rng(17)
         )
-        for name in (
-            "precompression_1_to_2_ratio", "precompression_2_to_1_ratio"
-        ):
-            self.assertGreaterEqual(metrics[name], 0.0)
-            self.assertLessEqual(metrics[name], 1.0)
+        curve = solution.curve
+        metrics = solution.physical_metrics
+        x1 = np.asarray(curve.x, dtype=float)
+        x2 = symmetric_values(curve.theta, x1)
+        stroke = float(np.ptp(x1))
+        empty_is_maximum = metrics["empty_plateau_is_maximum"]
+        empty_position = float(np.max(x1) if empty_is_maximum else np.min(x1))
+
+        def normalized_volume(values, angle):
+            position = circular_interpolate(curve.theta, values, angle)
+            swept_volume = (
+                empty_position - position if empty_is_maximum
+                else position - empty_position
+            )
+            return swept_volume / stroke
+
+        # 1->2 starts when piston 1 ends its real empty plateau; piston 2 is
+        # the full piston. At the reciprocal exchange piston 1 is full.
+        expected_1_to_2 = 1.0 - normalized_volume(
+            x2, metrics["real_plateau_end_deg"]
+        )
+        expected_2_to_1 = 1.0 - normalized_volume(
+            x1, metrics["symmetric_plateau_end_deg"]
+        )
+        self.assertAlmostEqual(
+            metrics["precompression_1_to_2_ratio"], expected_1_to_2, places=12
+        )
+        self.assertAlmostEqual(
+            metrics["precompression_2_to_1_ratio"], expected_2_to_1, places=12
+        )
 
 
 if __name__ == "__main__":

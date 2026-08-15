@@ -305,21 +305,22 @@ def compute_physical_metrics(curve, score_components, config):
 
     x = np.asarray(curve.x, dtype=float)
     stroke = float(np.ptp(x))
-    full_position = float(np.min(x) if empty_is_maximum else np.max(x))
+    empty_position = float(np.max(x) if empty_is_maximum else np.min(x))
 
-    def closure_ratio(piston, angle):
+    def volume_normalized(piston, angle):
+        """Swept volume: zero at empty position, one at full position."""
         local_angle = angle if piston == 1 else (-angle) % 360.0
         position = circular_interpolate(curve.theta, x, local_angle)
-        closure = (
-            position - full_position if empty_is_maximum
-            else full_position - position
+        volume = (
+            empty_position - position if empty_is_maximum
+            else position - empty_position
         )
-        return float(np.clip(closure / max(stroke, config.epsilon), 0.0, 1.0))
+        return float(np.clip(volume / max(stroke, config.epsilon), 0.0, 1.0))
 
     # At end1 piston 1 leaves its empty plateau; piston 2 is the full piston
     # already closing. At end2 the roles are exactly reversed.
-    precompression_1_to_2 = closure_ratio(2, end1)
-    precompression_2_to_1 = closure_ratio(1, end2)
+    precompression_1_to_2 = 1.0 - volume_normalized(2, end1)
+    precompression_2_to_1 = 1.0 - volume_normalized(1, end2)
     return {
         "useful_stroke": stroke,
         "real_plateau_start_deg": start1,

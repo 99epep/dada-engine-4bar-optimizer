@@ -101,8 +101,8 @@ def plot_refined_solution(filename="refined_results.npz", family="E", index=0):
         f"{100 * metrics['precompression_1_to_2_ratio']:.2f}% / "
         f"{100 * metrics['precompression_2_to_1_ratio']:.2f}%"
     )
-    axis.text(
-        0.01, 0.02, text, transform=axis.transAxes, va="bottom", fontsize=9,
+    figure.text(
+        0.5, 0.025, text, va="bottom", ha="center", fontsize=9,
         bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.88},
     )
     axis.set(
@@ -110,10 +110,14 @@ def plot_refined_solution(filename="refined_results.npz", family="E", index=0):
         xlabel="Angle de manivelle θ (°)", ylabel="Position X normalisée",
         xlim=(0.0, 360.0), ylim=(-0.03, 1.03),
     )
-    axis.set_xticks(np.arange(0.0, 361.0, 30.0))
+    axis.set_xticks(np.arange(0.0, 361.0, 45.0))
     axis.grid(True, alpha=0.3)
-    axis.legend(loc="upper right")
-    figure.tight_layout()
+    handles, labels = axis.get_legend_handles_labels()
+    figure.legend(
+        handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0.205),
+        ncol=3, frameon=True,
+    )
+    figure.tight_layout(rect=(0.0, 0.30, 1.0, 1.0))
     return figure
 
 
