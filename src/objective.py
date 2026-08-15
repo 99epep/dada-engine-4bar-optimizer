@@ -114,6 +114,21 @@ def evaluate_candidate(curve, config):
                 "acceleration_quality"
             ],
 
+        "symmetry_quality":
+            best_metrics[
+                "symmetry_quality"
+            ],
+
+        "symmetry_equivalent_shift_deg":
+            best_metrics[
+                "symmetry_equivalent_shift_deg"
+            ],
+
+        "score_base":
+            best_metrics[
+                "score_base"
+            ],
+
         "acceleration_plateau_end":
             best_metrics[
                 "acceleration_plateau_end"
@@ -1001,15 +1016,37 @@ def _score_candidate(metrics, config):
     # SCORE FINAL.
     # ---------------------------------------------------------------
 
-    score = float(
+    score_base = float(
         0.35 * shape_quality
         +
         0.65 * acceleration_quality
     )
 
+    symmetry_data = _symmetry_quality(
+        theta,
+        2.0 * x_norm - 1.0,
+        a3,
+        config.symmetry_zero_score_shift_deg,
+        config.epsilon,
+    )
+
+    score = float(
+        score_base
+        * symmetry_data["symmetry_quality"]
+    )
+
     return {
         "score":
             score,
+
+        "score_base":
+            score_base,
+
+        "symmetry_quality":
+            symmetry_data["symmetry_quality"],
+
+        "symmetry_equivalent_shift_deg":
+            symmetry_data["symmetry_equivalent_shift_deg"],
 
         "shape_quality":
             shape_quality,
@@ -1096,6 +1133,76 @@ def _rms(values):
         )
     )
 
+
+def _symmetry_quality(
+    theta,
+    normalized_displacement,
+    a3,
+    zero_score_shift_deg,
+    epsilon,
+):
+    """Grade central antisymmetry over the real rapid phase.
+
+    The normalized displacement is expected in [-1, 1].  The RMS vertical
+    residual f(t)+f(-t) is divided by the RMS slope of the odd component,
+    converting it to an equivalent horizontal shift in degrees.
+    """
+    theta = np.asarray(theta, dtype=np.float64)
+    values = np.asarray(normalized_displacement, dtype=np.float64)
+    if len(theta) < 3 or zero_score_shift_deg <= epsilon:
+        return {
+            "symmetry_quality": 0.0,
+            "symmetry_equivalent_shift_deg": float(zero_score_shift_deg),
+        }
+
+    signed_a3 = (float(a3) + 180.0) % 360.0 - 180.0
+    half_width = abs(signed_a3)
+    step = float(np.min(np.diff(theta)))
+    sample_angles = np.arange(0.0, half_width + 0.5 * step, step)
+    if len(sample_angles) < 3:
+        return {
+            "symmetry_quality": 0.0,
+            "symmetry_equivalent_shift_deg": float(zero_score_shift_deg),
+        }
+
+    positive = _circular_interpolate(theta, values, sample_angles)
+    negative = _circular_interpolate(theta, values, -sample_angles)
+    residual = 0.5 * (positive + negative)
+    odd_component = 0.5 * (positive - negative)
+    odd_slope = np.gradient(odd_component, sample_angles, edge_order=2)
+
+    residual_rms = _rms(residual)
+    slope_rms = _rms(odd_slope)
+    if slope_rms <= epsilon:
+        equivalent_shift = 0.0 if residual_rms <= epsilon else zero_score_shift_deg
+    else:
+        equivalent_shift = residual_rms / slope_rms
+
+    quality = float(np.clip(
+        1.0 - equivalent_shift / zero_score_shift_deg,
+        0.0,
+        1.0,
+    ))
+    return {
+        "symmetry_quality": quality,
+        "symmetry_equivalent_shift_deg": float(equivalent_shift),
+    }
+
+
+def _circular_interpolate(theta, values, angles):
+    circular_theta = np.mod(np.asarray(theta, dtype=np.float64), 360.0)
+    values = np.asarray(values, dtype=np.float64)
+    order = np.argsort(circular_theta)
+    circular_theta, values = circular_theta[order], values[order]
+    circular_theta, unique = np.unique(circular_theta, return_index=True)
+    values = values[unique]
+    extended_theta = np.concatenate((
+        circular_theta[-1:] - 360.0,
+        circular_theta,
+        circular_theta[:1] + 360.0,
+    ))
+    extended_values = np.concatenate((values[-1:], values, values[:1]))
+    return np.interp(np.mod(angles, 360.0), extended_theta, extended_values)
 
 def _angular_distance(a, b):
     """Shortest angular distance on the circle"""
@@ -1469,6 +1576,11 @@ def _build_ideal_curve(
 def _zero_score():
     return {
         "score": 0.0,
+
+        "score_base": 0.0,
+
+        "symmetry_quality": 0.0,
+        "symmetry_equivalent_shift_deg": 0.0,
 
         "shape_quality": 0.0,
 

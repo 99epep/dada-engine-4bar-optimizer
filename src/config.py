@@ -112,6 +112,9 @@ class SolverConfig:
 
     bisector_tolerance_deg: float = 10.0
 
+    # Une dissymétrie équivalente à ce décalage angulaire annule le score.
+    symmetry_zero_score_shift_deg: float = 12.0
+
     # --------------------------------------------------
     # Classement
     # --------------------------------------------------

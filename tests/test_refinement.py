@@ -17,6 +17,7 @@ from refinement import (
     symmetric_values,
 )
 from result_io import load_refined_results, load_results, save_refined_results
+from objective import _symmetry_quality
 
 
 class RefinementTests(unittest.TestCase):
@@ -46,9 +47,25 @@ class RefinementTests(unittest.TestCase):
         self.assertAlmostEqual(components["a2_angle"], (360.0 - a3) % 360.0)
         self.assertAlmostEqual(
             result.score,
-            0.35 * components["shape_quality"]
-            + 0.65 * components["acceleration_quality"],
+            (
+                0.35 * components["shape_quality"]
+                + 0.65 * components["acceleration_quality"]
+            ) * components["symmetry_quality"],
         )
+
+    def test_symmetry_quality_shift_calibration(self):
+        theta = np.arange(0.0, 360.1, 0.1)
+
+        def quality(shift):
+            curve = np.sin(np.radians(theta - shift))
+            return _symmetry_quality(theta, curve, 60.0, 12.0, 1e-12)
+
+        perfect = quality(0.0)
+        half = quality(6.0)
+        zero = quality(12.0)
+        self.assertAlmostEqual(perfect["symmetry_quality"], 1.0, places=12)
+        self.assertAlmostEqual(half["symmetry_quality"], 0.5, delta=0.03)
+        self.assertEqual(zero["symmetry_quality"], 0.0)
 
     def test_A1_A2_are_derived_from_A3_for_E(self):
         self.assert_ideal_landmarks("E")
