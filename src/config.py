@@ -37,16 +37,16 @@ class SolverConfig:
 
     # Manivelle AB.
     crank_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(25.0, 76.0, 2.0)
+        default_factory=lambda: np.arange(25.0, 76.0, 4.0)
     )
 
     # Bielle BC et culbuteur CD.
     coupler_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(100.0, 221.0, 2.0)
+        default_factory=lambda: np.arange(100.0, 221.0, 3.0)
     )
 
     rocker_lengths: np.ndarray = field(
-        default_factory=lambda: np.arange(100.0, 221.0, 2.0)
+        default_factory=lambda: np.arange(100.0, 221.0, 3.0)
     )
 
     def __post_init__(self):
@@ -72,8 +72,6 @@ class SolverConfig:
             160.0, 180.0, 200.0, 220.0,
         ])
 
-        self.support_E_step_deg = 10.0
-
     # --------------------------------------------------
     # Solutions
     # --------------------------------------------------
@@ -84,7 +82,7 @@ class SolverConfig:
     # Filtre 1 : zone immobile
     # --------------------------------------------------
 
-    plateau_max_amplitude_ratio: float = 0.0025
+    plateau_max_amplitude_ratio: float = 0.03
 
     # Plateau physique de la machine complète, indépendant du filtre 1.
     real_plateau_max_amplitude_ratio: float = 0.01
@@ -112,6 +110,15 @@ class SolverConfig:
 
     bisector_tolerance_deg: float = 10.0
 
+    # A3 reste voisin de +/-40 deg afin de préserver une vraie phase rapide
+    # et une durée significative du plateau de la loi idéale.
+    a3_targets_deg: tuple = (
+        40.0,
+        320.0,
+    )
+
+    a3_tolerance_deg: float = 25.0
+
     # Une dissymétrie équivalente à ce décalage angulaire annule le score.
     symmetry_zero_score_shift_deg: float = 12.0
 
@@ -125,15 +132,20 @@ class SolverConfig:
     # Recherche des supports
     # --------------------------------------------------
 
-    support_E_step_deg: float = 5.0
-    support_F_radius_factor: float = 3.0
+    support_F_radius_factor: float = 1.5
     support_F_grid_step_factor: float = 0.20
 
     # --------------------------------------------------
     # Déduplication géométrique des résultats
     # --------------------------------------------------
 
-    geometry_proximity_mm: float = 10.0
+    # Niveau 1 : voisinage assez large pour préserver des familles diverses.
+    level1_length_proximity_ratio: float = 0.08
+    level1_F_support_proximity_ratio: float = 0.25
+
+    # Niveau 2 : ne fusionner que les solutions réellement convergentes.
+    level2_length_proximity_ratio: float = 0.02
+    level2_F_support_proximity_ratio: float = 0.05
 
     # --------------------------------------------------
     # Divers

@@ -2,7 +2,10 @@
 # File: optimizer.py (part 1/5)
 # =========================
 
+import numpy as np
+
 from kinematics import build_candidate_curve, solve
+from deduplication import deduplicate_solutions
 from mechanism_generator import generate_mechanisms
 from models import SearchStatistics, Solution
 from objective import evaluate_candidate
@@ -50,6 +53,10 @@ def optimize(config):
                 kinematics,
                 support,
             )
+
+            if support.kind.value == "F" and not _F_motion_is_valid(curve, config):
+                stats.filter1_rejected += 1
+                continue
 
             result = evaluate_candidate(
                 curve,
@@ -145,11 +152,11 @@ def _finalize_solutions(solutions, config):
     Deduplicate geometrically first, then keep the N best.
     """
 
-    solutions = best_solutions(solutions)
-
-    solutions = _filter_geometrically_close(
-        solutions,
-        config,
+    if not solutions:
+        return []
+    family = solutions[0].support.kind.value
+    solutions = deduplicate_solutions(
+        solutions, family, config, level=1, score_attribute="score"
     )
 
     return solutions[:config.max_solutions]
@@ -194,6 +201,10 @@ def optimize_with_statistics(config):
                 support,
             )
 
+            if support.kind.value == "F" and not _F_motion_is_valid(curve, config):
+                stats.filter1_rejected += 1
+                continue
+
             result = evaluate_candidate(
                 curve,
                 config,
@@ -230,6 +241,54 @@ def optimize_with_statistics(config):
     )
 
 
+def optimize_family_with_statistics(config, family):
+    """Run level 1 for E or F only, without generating the other supports."""
+    family = family.upper()
+    if family not in ("E", "F"):
+        raise ValueError("family must be E or F")
+
+    stats = SearchStatistics()
+    accepted_solutions = []
+    for mechanism in generate_mechanisms(config):
+        if not is_grashof_crank_rocker(mechanism):
+            stats.grashof_rejected += 1
+            continue
+        stats.mechanisms_tested += 1
+        kinematics = solve(mechanism, config)
+        if not kinematics.valid:
+            continue
+        supports = generate_candidates(mechanism, config, family=family)
+        stats.supports_generated += len(supports)
+        for support in supports:
+            curve = build_candidate_curve(kinematics, support)
+            if family == "F" and not _F_motion_is_valid(curve, config):
+                stats.filter1_rejected += 1
+                continue
+            result = evaluate_candidate(curve, config)
+            if not result.accepted:
+                if result.reject_reason == "bisector":
+                    stats.filter2_rejected += 1
+                else:
+                    stats.filter1_rejected += 1
+                continue
+            stats.accepted += 1
+            accepted_solutions.append(Solution(
+                score=result.score,
+                mechanism=mechanism,
+                support=support,
+                curve=curve,
+                score_components=result.score_components,
+            ))
+    return _finalize_solutions(accepted_solutions, config), stats
+
+
+def _F_motion_is_valid(curve, config):
+    """F must move no farther vertically than along the piston axis X."""
+    x_stroke = float(np.ptp(curve.x))
+    y_stroke = float(np.ptp(curve.y))
+    return y_stroke <= x_stroke + config.epsilon
+
+
 def _filter_geometrically_close(solutions, config):
     """
     Remove geometrically redundant solutions.
@@ -250,49 +309,10 @@ def _filter_geometrically_close(solutions, config):
 
     if not solutions:
         return []
-
-    tolerance = config.geometry_proximity_mm
-
-    kept = []
-
-    for solution in solutions:
-
-        mechanism = solution.mechanism
-
-        is_close = False
-
-        for existing in kept:
-
-            other = existing.mechanism
-
-            if (
-                abs(
-                    mechanism.ground
-                    - other.ground
-                ) <= tolerance
-                and
-                abs(
-                    mechanism.crank
-                    - other.crank
-                ) <= tolerance
-                and
-                abs(
-                    mechanism.coupler
-                    - other.coupler
-                ) <= tolerance
-                and
-                abs(
-                    mechanism.rocker
-                    - other.rocker
-                ) <= tolerance
-            ):
-                is_close = True
-                break
-
-        if not is_close:
-            kept.append(solution)
-
-    return kept
+    return deduplicate_solutions(
+        solutions, solutions[0].support.kind.value, config,
+        level=1, score_attribute="score",
+    )
 
 
 def print_statistics(stats):
@@ -334,4 +354,5 @@ __all__ = [
     "best_scores",
     "best_solutions",
     "print_statistics",
+    "optimize_family_with_statistics",
 ]

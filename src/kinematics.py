@@ -280,10 +280,17 @@ def build_candidate_curve(result, support):
     x = points[:, 0]
     y = points[:, 1]
 
-    # The piston axis is parallel to AD, i.e. to the fixed X axis.
-    # The quantity to evaluate is therefore the X projection of the
-    # support point.
-    displacement = x - x[0]
+    if support.kind is SupportKind.E:
+        # E is ranked from the angular displacement of rocker DC. Unwrapping
+        # prevents the atan2 discontinuity from creating an artificial jump.
+        rocker_angle = np.unwrap(np.arctan2(
+            result.C[:, 1] - result.D[:, 1],
+            result.C[:, 0] - result.D[:, 0],
+        ))
+        displacement = np.degrees(rocker_angle - rocker_angle[0])
+    else:
+        # F drives a piston whose axis is parallel to fixed axis AD.
+        displacement = x - x[0]
 
     velocity = np.gradient(
         displacement,

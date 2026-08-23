@@ -19,6 +19,45 @@ def circular_mask(theta, start, end):
     return ((np.asarray(theta) - start) % 360.0) <= (end - start) % 360.0 + 1e-10
 
 
+def list_refined_solutions(filename="refined_results.npz"):
+    """Print E then F candidates, ranked by decreasing final score."""
+    loaded = load_refined_results(filename)
+    try:
+        metadata = loaded["metadata"]
+        for family in ("E", "F"):
+            solutions = sorted(
+                metadata[family],
+                key=lambda solution: solution["final_score"],
+                reverse=True,
+            )
+            print(f"\nSOLUTIONS {family}")
+            print("=" * 104)
+            if not solutions:
+                print("Aucune solution.")
+                continue
+            for rank, solution in enumerate(solutions, start=1):
+                geometry = solution["final_geometry"]
+                support = solution["support"]
+                metrics = solution["physical_metrics"]
+                if family == "E":
+                    position = f"CDE={support['cde_angle_deg']:.2f}°"
+                else:
+                    position = (
+                        f"F=({support['local_x']:.2f}, "
+                        f"{support['local_y']:.2f}) mm"
+                    )
+                print(
+                    f"{rank:3d} | score={solution['final_score']:.9f} | "
+                    f"AB/BC/CD={geometry['crank']:.2f}/"
+                    f"{geometry['coupler']:.2f}/{geometry['rocker']:.2f} mm | "
+                    f"{position} | course={metrics['useful_stroke']:.2f} mm | "
+                    f"précomp.={100.0 * metrics['precompression_1_to_2_ratio']:.2f}%/"
+                    f"{100.0 * metrics['precompression_2_to_1_ratio']:.2f}%"
+                )
+    finally:
+        loaded["data"].close()
+
+
 def plot_refined_solution(filename="refined_results.npz", family="E", index=0):
     family = family.upper()
     if family not in ("E", "F"):
@@ -123,10 +162,15 @@ def plot_refined_solution(filename="refined_results.npz", family="E", index=0):
 
 def main():
     parser = argparse.ArgumentParser(description="Visualiseur DADA niveau 2")
-    parser.add_argument("filename", nargs="?", default="refined_results.npz")
-    parser.add_argument("family", nargs="?", default="E")
-    parser.add_argument("index", nargs="?", type=int, default=0)
+    parser.add_argument("filename", nargs="?")
+    parser.add_argument("family", nargs="?")
+    parser.add_argument("index", nargs="?", type=int)
     args = parser.parse_args()
+    if args.filename is None or (args.family is None and args.index is None):
+        list_refined_solutions(args.filename or "refined_results.npz")
+        return
+    if args.family is None or args.index is None:
+        parser.error("le tracé requiert : fichier famille index")
     plot_refined_solution(args.filename, args.family, args.index)
     plt.show()
 
@@ -135,4 +179,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["plot_refined_solution"]
+__all__ = ["list_refined_solutions", "plot_refined_solution"]

@@ -8,6 +8,7 @@ import math
 import numpy as np
 
 from kinematics import build_candidate_curve, solve
+from deduplication import deduplicate_solutions
 from models import CandidateCurve, Mechanism, Support, SupportKind
 from objective import evaluate_candidate
 
@@ -41,6 +42,9 @@ class RefinedSolution:
     def to_metadata(self, final_index):
         return {
             "family": self.family,
+            "scoring_quantity": (
+                "rocker_angle_deg" if self.family == "E" else "support_x_mm"
+            ),
             "final_index": final_index,
             "final_rank": final_index + 1,
             "source_index": self.source_index,
@@ -94,18 +98,39 @@ def grid_step(values):
 
 def support_from_parameters(family, mechanism, parameters):
     if family == "E":
-        angle = math.radians(parameters["cde_angle_deg"])
-        return Support(
-            SupportKind.E,
-            mechanism.rocker * math.cos(angle),
-            mechanism.rocker * math.sin(angle),
-        )
+        # CDE has no influence on the angular score and is determined only
+        # after the geometry has converged.
+        return Support(SupportKind.E, mechanism.rocker, 0.0)
     return Support(SupportKind.F, parameters["local_x"], parameters["local_y"])
+
+
+def geometry_in_level1_domain(family, parameters, config):
+    """Keep continuous refinement inside the domain swept by level 1."""
+    for name, values in (
+        ("crank", config.crank_lengths),
+        ("coupler", config.coupler_lengths),
+        ("rocker", config.rocker_lengths),
+    ):
+        value = float(parameters[name])
+        values = np.asarray(values, dtype=float)
+        if value < float(np.min(values)) or value > float(np.max(values)):
+            return False
+
+    if family == "E":
+        return True
+
+    coupler = float(parameters["coupler"])
+    radius = config.support_F_radius_factor * coupler
+    dx = float(parameters["local_x"]) - 0.5 * coupler
+    dy = float(parameters["local_y"])
+    return dx * dx + dy * dy <= radius * radius + config.epsilon
 
 
 def evaluate_geometry(family, ground, parameters, config):
     """Run precisely the existing level-1 kinematics/filter/score chain."""
     if min(parameters[name] for name in ("crank", "coupler", "rocker")) <= 0.0:
+        return None
+    if not geometry_in_level1_domain(family, parameters, config):
         return None
     mechanism = Mechanism(
         ground, parameters["crank"], parameters["coupler"], parameters["rocker"]
@@ -115,6 +140,8 @@ def evaluate_geometry(family, ground, parameters, config):
         return None
     support = support_from_parameters(family, mechanism, parameters)
     curve = build_candidate_curve(kinematic, support)
+    if family == "F" and np.ptp(curve.y) > np.ptp(curve.x) + config.epsilon:
+        return None
     result = evaluate_candidate(curve, config)
     if not result.accepted or not np.isfinite(result.score):
         return None
@@ -123,17 +150,13 @@ def evaluate_geometry(family, ground, parameters, config):
 
 def source_parameters(entry, family):
     mechanism = entry["mechanism"]
-    support = entry["support"]
     parameters = {
         "crank": float(mechanism["crank"]),
         "coupler": float(mechanism["coupler"]),
         "rocker": float(mechanism["rocker"]),
     }
-    if family == "E":
-        parameters["cde_angle_deg"] = math.degrees(
-            math.atan2(support["local_y"], support["local_x"])
-        ) % 360.0
-    else:
+    if family == "F":
+        support = entry["support"]
         parameters["local_x"] = float(support["local_x"])
         parameters["local_y"] = float(support["local_y"])
     return parameters
@@ -145,9 +168,7 @@ def initial_steps(config, family, initial_coupler):
         "coupler": grid_step(config.coupler_lengths),
         "rocker": grid_step(config.rocker_lengths),
     }
-    if family == "E":
-        steps["cde_angle_deg"] = float(config.support_E_step_deg)
-    else:
+    if family == "F":
         f_step = float(config.support_F_grid_step_factor * initial_coupler)
         steps.update(local_x=f_step, local_y=f_step)
     return steps
@@ -168,9 +189,7 @@ def refine_candidate(entry, family, source_index, config, rng):
         )
     current_score = float(current[3].score)
     steps = initial_steps(config, family, parameters["coupler"])
-    tolerances = {
-        name: (0.1 if name == "cde_angle_deg" else 0.02) for name in steps
-    }
+    tolerances = {name: 0.02 for name in steps}
 
     while True:
         round_improved = True
@@ -184,8 +203,6 @@ def refine_candidate(entry, family, source_index, config, rng):
                 for direction in (1.0, -1.0):
                     trial_parameters = parameters.copy()
                     trial_parameters[name] += direction * steps[name]
-                    if name == "cde_angle_deg":
-                        trial_parameters[name] %= 360.0
                     trial = evaluate_geometry(family, ground, trial_parameters, config)
                     if trial is None or trial[3].score <= current_score:
                         continue
@@ -201,11 +218,15 @@ def refine_candidate(entry, family, source_index, config, rng):
             break
         steps = {name: step / 5.0 for name, step in steps.items()}
 
-    mechanism, support, _, result = current
+    mechanism, scoring_support, _, result = current
     fine_config = replace(config, angle_step_deg=config.refinement_angle_step_deg)
     fine_kinematic = solve(mechanism, fine_config)
     if not fine_kinematic.valid:
         raise AssertionError("Final accepted geometry is kinematically invalid")
+    if family == "E":
+        support, cde_angle_deg = final_E_support(mechanism, fine_kinematic)
+    else:
+        support, cde_angle_deg = scoring_support, None
     fine_curve = build_candidate_curve(fine_kinematic, support)
     physical = compute_physical_metrics(fine_curve, result.score_components, config)
 
@@ -227,12 +248,37 @@ def refine_candidate(entry, family, source_index, config, rng):
         },
         mechanism=mechanism,
         support=support,
-        cde_angle_deg=parameters.get("cde_angle_deg"),
+        cde_angle_deg=cde_angle_deg,
         curve=fine_curve,
         score_components=dict(result.score_components),
         physical_metrics=physical,
         scoring_angle_step_deg=config.angle_step_deg,
         final_angle_step_deg=config.refinement_angle_step_deg,
+    )
+
+
+def final_E_support(mechanism, kinematic):
+    """Set DE vertical at the midpoint of the rocker angular excursion."""
+    rocker_angles = np.unwrap(np.arctan2(
+        kinematic.C[:, 1] - kinematic.D[:, 1],
+        kinematic.C[:, 0] - kinematic.D[:, 0],
+    ))
+    middle_angle_deg = math.degrees(
+        0.5 * (float(np.min(rocker_angles)) + float(np.max(rocker_angles)))
+    )
+    cde_angle_deg = (90.0 - middle_angle_deg + 180.0) % 360.0 - 180.0
+    angle = math.radians(cde_angle_deg)
+    support = Support(
+        SupportKind.E,
+        mechanism.rocker * math.cos(angle),
+        mechanism.rocker * math.sin(angle),
+    )
+    return support, cde_angle_deg
+
+
+def deduplicate_refined_solutions(solutions, family, config):
+    return deduplicate_solutions(
+        solutions, family, config, level=2, score_attribute="final_score"
     )
 
 
@@ -346,5 +392,6 @@ def compute_physical_metrics(curve, score_components, config):
 __all__ = [
     "RefinedSolution", "evaluate_geometry", "refine_candidate",
     "detect_real_plateau", "compute_physical_metrics", "symmetric_values",
-    "support_from_parameters", "source_parameters",
+    "support_from_parameters", "source_parameters", "geometry_in_level1_domain",
+    "final_E_support", "deduplicate_refined_solutions",
 ]

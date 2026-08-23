@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Optimization of a four-bar linkage for the DADA Engine."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "TBD" }
+license = { text = "CC0-1.0" }
 
 authors = [
     { name = "Étienne DADA" }
@@ -17,7 +17,8 @@ authors = [
 dependencies = [
     "numpy>=2.0",
     "scipy>=1.14",
-    "matplotlib>=3.9"
+    "matplotlib>=3.9",
+    "Pillow>=9.4"
 ]
 
 [tool.setuptools]

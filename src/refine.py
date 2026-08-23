@@ -5,7 +5,7 @@ import argparse
 import numpy as np
 
 from config import SolverConfig
-from refinement import refine_candidate
+from refinement import refine_candidate, deduplicate_refined_solutions
 from result_io import load_results, save_refined_results
 
 
@@ -55,8 +55,8 @@ def run(input_filename="results.npz", output_filename="refined_results.npz", lim
             solutions.append(
                 refine_candidate(entry, family, source_index, config, rng)
             )
-        refined[family] = sorted(
-            solutions, key=lambda solution: solution.final_score, reverse=True
+        refined[family] = deduplicate_refined_solutions(
+            solutions, family, config
         )
     output = save_refined_results(refined["E"], refined["F"], output_filename)
     print_summary("E", refined["E"])

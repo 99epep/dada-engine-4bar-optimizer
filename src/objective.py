@@ -613,6 +613,18 @@ def _filter_2(metrics, config):
         ]
     ) % 360.0
 
+    # A3 détermine directement A1/A2 et donc la durée du plateau idéal.
+    # Près de 90° ou 270°, A1 et A2 se confondent et une sinusoïde peut être
+    # favorisée artificiellement.
+    valid_a3 = any(
+        _angular_distance(a3, target)
+        <= config.a3_tolerance_deg + config.epsilon
+        for target in config.a3_targets_deg
+    )
+
+    if not valid_a3:
+        return False, "a3-angle"
+
     layout = _phase_layout(
         plateau_start,
         plateau_end,

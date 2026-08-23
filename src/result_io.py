@@ -55,6 +55,9 @@ def save_results(
 
             metadata[kind].append({
                 "score": solution["score"],
+                "scoring_quantity": (
+                    "rocker_angle_deg" if kind == "E" else "support_x_mm"
+                ),
                 "mechanism": solution["mechanism"],
                 "support": solution["support"],
                 "score_components": solution["score_components"],

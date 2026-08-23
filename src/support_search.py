@@ -2,12 +2,12 @@
 # File: support_search.py (part 1/4)
 # =========================
 
-import math
-from models import CandidateCurve, Support, SupportKind
-from kinematics import point_on_rocker, point_on_coupler
+import numpy as np
+from models import Support, SupportKind
+from kinematics import build_candidate_curve
 
 
-def generate_candidates(mechanism, config):
+def generate_candidates(mechanism, config, family=None):
     """
     Generate every candidate support for one mechanism.
 
@@ -18,34 +18,19 @@ def generate_candidates(mechanism, config):
 
     candidates = []
 
-    candidates.extend(_generate_E_candidates(mechanism, config))
-    candidates.extend(_generate_F_candidates(mechanism, config))
+    family = None if family is None else family.upper()
+    if family in (None, "E"):
+        candidates.extend(_generate_E_candidates(mechanism, config))
+    if family in (None, "F"):
+        candidates.extend(_generate_F_candidates(mechanism, config))
 
     return candidates
 
 
 def _generate_E_candidates(mechanism, config):
-
-    radius = mechanism.rocker
-
-    candidates = []
-
-    for angle_deg in range(0, 180, int(config.support_E_step_deg)):
-
-        angle = math.radians(angle_deg)
-
-        x = radius * math.cos(angle)
-        y = radius * math.sin(angle)
-
-        candidates.append(
-            Support(
-                kind=SupportKind.E,
-                local_x=x,
-                local_y=y,
-            )
-        )
-
-    return candidates
+    # The E score depends only on the rocker angle. Its physical CDE angle is
+    # calculated after refinement, so one canonical support is sufficient.
+    return [Support(SupportKind.E, mechanism.rocker, 0.0)]
 
 # =========================
 # File: support_search.py (part 2/4)
@@ -113,11 +98,7 @@ def generate_candidate_curves(kinematics, supports):
 
 
 def _build_candidate_curve(kinematics, support):
-
-    if support.kind is SupportKind.E:
-        return _build_E_curve(kinematics, support)
-
-    return _build_F_curve(kinematics, support)
+    return build_candidate_curve(kinematics, support)
 
 # =========================
 # File: support_search.py (part 4/4)
@@ -127,45 +108,11 @@ def _build_E_curve(kinematics, support):
     """
     Point attached to rocker CD.
     """
-    points = point_on_rocker(kinematics, support)
-
-    x = points[:, 0]
-    y = points[:, 1]
-
-    displacement = x - x[0]
-    velocity = __import__("numpy").gradient(
-        displacement,
-        kinematics.theta,
-    )
-
-    return CandidateCurve(
-        theta=kinematics.theta,
-        x=x,
-        y=y,
-        displacement=displacement,
-        velocity=velocity,
-    )
+    return build_candidate_curve(kinematics, support)
 
 
 def _build_F_curve(kinematics, support):
     """
     Point attached to coupler BC.
     """
-    points = point_on_coupler(kinematics, support)
-
-    x = points[:, 0]
-    y = points[:, 1]
-
-    displacement = x - x[0]
-    velocity = __import__("numpy").gradient(
-        displacement,
-        kinematics.theta,
-    )
-
-    return CandidateCurve(
-        theta=kinematics.theta,
-        x=x,
-        y=y,
-        displacement=displacement,
-        velocity=velocity,
-    )
+    return build_candidate_curve(kinematics, support)
