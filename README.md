@@ -160,7 +160,8 @@ Options disponibles :
 
 Les valeurs par défaut destinées à uniformiser tous les GIF se trouvent au
 début de `src/animate_mechanism.py`. Les réglages actuels donnent une image de
-800 × 200 pixels, 25 images par seconde et un pas de 4°.
+500 × 618 pixels, avec le mécanisme sur les 309 pixels supérieurs et le graphe
+sur les 309 pixels inférieurs, 25 images par seconde et un pas de 4°.
 
 ## Cinématique et machine symétrique
 
