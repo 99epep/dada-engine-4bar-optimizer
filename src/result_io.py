@@ -32,6 +32,7 @@ def save_results(
             "supports_generated": statistics.supports_generated,
             "filter1_rejected": statistics.filter1_rejected,
             "filter2_rejected": statistics.filter2_rejected,
+            "precompression_rejected": statistics.precompression_rejected,
             "accepted": statistics.accepted,
         },
     }

@@ -9,6 +9,7 @@ from deduplication import deduplicate_solutions
 from mechanism_generator import generate_mechanisms
 from models import SearchStatistics, Solution
 from objective import evaluate_candidate
+from refinement import compute_physical_metrics, final_E_support
 from support_search import generate_candidates
 
 
@@ -70,6 +71,13 @@ def optimize(config):
                 else:
                     stats.filter1_rejected += 1
 
+                continue
+
+            if not _precompression_is_valid(
+                curve, result, mechanism, kinematics,
+                support.kind.value, config,
+            ):
+                stats.precompression_rejected += 1
                 continue
 
             stats.accepted += 1
@@ -219,6 +227,13 @@ def optimize_with_statistics(config):
 
                 continue
 
+            if not _precompression_is_valid(
+                curve, result, mechanism, kinematics,
+                support.kind.value, config,
+            ):
+                stats.precompression_rejected += 1
+                continue
+
             stats.accepted += 1
 
             solution = Solution(
@@ -271,6 +286,12 @@ def optimize_family_with_statistics(config, family):
                 else:
                     stats.filter1_rejected += 1
                 continue
+            if not _precompression_is_valid(
+                curve, result, mechanism, kinematics,
+                support.kind.value, config,
+            ):
+                stats.precompression_rejected += 1
+                continue
             stats.accepted += 1
             accepted_solutions.append(Solution(
                 score=result.score,
@@ -287,6 +308,21 @@ def _F_motion_is_valid(curve, config):
     x_stroke = float(np.ptp(curve.x))
     y_stroke = float(np.ptp(curve.y))
     return y_stroke <= x_stroke + config.epsilon
+
+
+def _precompression_is_valid(
+    curve, result, mechanism, kinematics, family, config
+):
+    # E is scored on rocker angle, but precompression belongs to the final
+    # physical E whose DE is vertical at mid-stroke.
+    if family == "E":
+        support, _ = final_E_support(mechanism, kinematics)
+        curve = build_candidate_curve(kinematics, support)
+    metrics = compute_physical_metrics(curve, result.score_components, config)
+    return (
+        metrics["precompression_ratio"] + config.epsilon
+        >= config.precompression_min_ratio
+    )
 
 
 def _filter_geometrically_close(solutions, config):
@@ -329,6 +365,7 @@ def print_statistics(stats):
     print(f"Supports generated     : {stats.supports_generated}")
     print(f"Rejected by filter #1  : {stats.filter1_rejected}")
     print(f"Rejected by filter #2  : {stats.filter2_rejected}")
+    print(f"Rejected precompression: {stats.precompression_rejected}")
     print(f"Accepted candidates    : {stats.accepted}")
 
     total = max(stats.supports_generated, 1)

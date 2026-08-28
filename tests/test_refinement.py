@@ -120,6 +120,16 @@ class RefinementTests(unittest.TestCase):
             "F", dict(valid_f, local_x=valid_f["local_x"] + 0.01), self.config
         ))
 
+    def test_minimum_precompression_filter(self):
+        passing = replace(self.config, precompression_min_ratio=0.20)
+        failing = replace(self.config, precompression_min_ratio=0.23)
+        self.assertIsNotNone(evaluate_geometry(
+            "F", 100.0, self.f_parameters, passing
+        ))
+        self.assertIsNone(evaluate_geometry(
+            "F", 100.0, self.f_parameters, failing
+        ))
+
     def test_family_aware_deduplication(self):
         def item(crank, coupler, rocker, x=0.0, y=0.0):
             return SimpleNamespace(
@@ -163,6 +173,10 @@ class RefinementTests(unittest.TestCase):
             solution.mechanism.rocker,
         )
         metrics = solution.physical_metrics
+        self.assertGreaterEqual(
+            metrics["precompression_ratio"] + self.config.epsilon,
+            self.config.precompression_min_ratio,
+        )
         self.assertAlmostEqual(
             2 * metrics["real_plateau_width_deg"]
             + metrics["exchange_1_to_2_deg"]
@@ -199,19 +213,30 @@ class RefinementTests(unittest.TestCase):
         empty_is_maximum = metrics["empty_plateau_is_maximum"]
         empty_position = float(np.max(x1) if empty_is_maximum else np.min(x1))
 
-        def normalized_volume(values, angle):
-            position = circular_interpolate(curve.theta, values, angle)
-            volume = empty_position - position if empty_is_maximum else position - empty_position
-            return volume / stroke
-
-        self.assertAlmostEqual(
-            metrics["precompression_1_to_2_ratio"],
-            1.0 - normalized_volume(x2, metrics["real_plateau_end_deg"]),
+        a3 = result.score_components["a3_angle"] % 360.0
+        if a3 > 180.0:
+            expected_start = (-a3) % 360.0
+            expected_end = metrics["real_plateau_end_deg"]
+            full_curve = x2
+            expected_piston = 2
+        else:
+            expected_start = a3
+            expected_end = metrics["symmetric_plateau_end_deg"]
+            full_curve = x1
+            expected_piston = 1
+        full_position = circular_interpolate(
+            curve.theta, full_curve, expected_start
         )
-        self.assertAlmostEqual(
-            metrics["precompression_2_to_1_ratio"],
-            1.0 - normalized_volume(x1, metrics["symmetric_plateau_end_deg"]),
+        exchange_position = circular_interpolate(
+            curve.theta, full_curve, expected_end
         )
+        expected = (exchange_position - full_position) / (
+            empty_position - full_position
+        )
+        self.assertAlmostEqual(metrics["precompression_ratio"], expected)
+        self.assertAlmostEqual(metrics["precompression_start_deg"], expected_start)
+        self.assertAlmostEqual(metrics["precompression_end_deg"], expected_end)
+        self.assertEqual(metrics["precompression_full_piston"], expected_piston)
 
     def test_symmetry_quality_shift_calibration(self):
         theta = np.arange(0.0, 360.1, 0.1)

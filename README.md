@@ -128,7 +128,7 @@ Le graphique superpose :
   plateau vide.
 
 Il rappelle également la géométrie, le score avant et après raffinement, la
-course utile, la largeur du plateau, les échanges et les précompressions.
+course utile, la largeur du plateau, les échanges et la précompression.
 
 ## Animation GIF
 
@@ -192,7 +192,7 @@ x2(theta) = f(-theta mod 360)
 ```
 
 Cette symétrie sert uniquement à décrire la machine complète, ses deux plateaux,
-ses phases d'échange et ses précompressions.
+ses phases d'échange et sa précompression utile.
 
 ## Filtres du niveau 1
 
@@ -212,6 +212,10 @@ course_Y(F) <= course_X(F)
 
 Cette condition est appliquée sur la grille globale et à chaque essai du
 raffinement.
+
+La précompression thermodynamiquement utile doit atteindre au moins 20 % de la
+course. Ce seuil est lui aussi appliqué par les deux niveaux ; une géométrie qui
+le franchit vers le bas pendant le raffinement est rejetée.
 
 ### Plateau cinématique
 
@@ -291,10 +295,13 @@ Le fichier raffiné conserve notamment :
 - le début, la fin et la largeur du plateau réel ;
 - le plateau symétrique exact ;
 - les deux durées d'échange ;
-- les deux précompressions.
+- la précompression thermodynamiquement utile.
 
-Pour chaque échange, la précompression mesure la fermeture déjà effectuée par
-le piston plein au moment où l'autre piston termine son plateau vide :
+Si A3 est inférieur ou égal à 180°, le calcul commence à A3 sur le piston 1.
+Si A3 est supérieur à 180°, il commence à `-A3 mod 360°` sur le piston 2. À cet
+instant, ce piston vient d'atteindre son état plein tandis que l'autre commence
+son plateau vide. On avance ensuite jusqu'à la fin réelle de ce plateau : la
+fermeture déjà effectuée par le piston plein est la précompression utile.
 
 ```text
 precompression_ratio = 1 - volume_normalized_at_exchange_start

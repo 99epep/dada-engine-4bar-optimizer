@@ -30,8 +30,7 @@ def print_summary(family, solutions):
             f"plateau={metrics['real_plateau_width_deg']:.3f}° | "
             f"échanges={metrics['exchange_1_to_2_deg']:.3f}/"
             f"{metrics['exchange_2_to_1_deg']:.3f}° | "
-            f"précomp.={100 * metrics['precompression_1_to_2_ratio']:.2f}/"
-            f"{100 * metrics['precompression_2_to_1_ratio']:.2f}%"
+            f"précomp.={100 * metrics['precompression_ratio']:.2f}%"
         )
 
 

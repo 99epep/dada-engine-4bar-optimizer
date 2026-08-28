@@ -19,6 +19,19 @@ def circular_mask(theta, start, end):
     return ((np.asarray(theta) - start) % 360.0) <= (end - start) % 360.0 + 1e-10
 
 
+def precompression_ratio(solution):
+    """Read the single metric, with compatibility for older refined NPZ."""
+    metrics = solution["physical_metrics"]
+    if "precompression_ratio" in metrics:
+        return float(metrics["precompression_ratio"])
+    a3 = float(solution["score_components"]["a3_angle"]) % 360.0
+    legacy_key = (
+        "precompression_1_to_2_ratio" if a3 > 180.0
+        else "precompression_2_to_1_ratio"
+    )
+    return float(metrics[legacy_key])
+
+
 def list_refined_solutions(filename="refined_results.npz"):
     """Print E then F candidates, ranked by decreasing final score."""
     loaded = load_refined_results(filename)
@@ -51,8 +64,7 @@ def list_refined_solutions(filename="refined_results.npz"):
                     f"AB/BC/CD={geometry['crank']:.2f}/"
                     f"{geometry['coupler']:.2f}/{geometry['rocker']:.2f} mm | "
                     f"{position} | course={metrics['useful_stroke']:.2f} mm | "
-                    f"précomp.={100.0 * metrics['precompression_1_to_2_ratio']:.2f}%/"
-                    f"{100.0 * metrics['precompression_2_to_1_ratio']:.2f}%"
+                    f"précomp.={100.0 * precompression_ratio(solution):.2f}%"
                 )
     finally:
         loaded["data"].close()
@@ -136,9 +148,8 @@ def plot_refined_solution(filename="refined_results.npz", family="E", index=0):
         f"Course : {metrics['useful_stroke']:.4f} mm | "
         f"plateau : {metrics['real_plateau_width_deg']:.3f}°\n"
         f"Échanges 1→2 / 2→1 : {metrics['exchange_1_to_2_deg']:.3f}° / "
-        f"{metrics['exchange_2_to_1_deg']:.3f}° | précompressions : "
-        f"{100 * metrics['precompression_1_to_2_ratio']:.2f}% / "
-        f"{100 * metrics['precompression_2_to_1_ratio']:.2f}%"
+        f"{metrics['exchange_2_to_1_deg']:.3f}° | précompression : "
+        f"{100 * precompression_ratio(solution):.2f}%"
     )
     figure.text(
         0.5, 0.025, text, va="bottom", ha="center", fontsize=9,
@@ -179,4 +190,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["list_refined_solutions", "plot_refined_solution"]
+__all__ = ["list_refined_solutions", "plot_refined_solution", "precompression_ratio"]

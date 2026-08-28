@@ -145,6 +145,20 @@ def evaluate_geometry(family, ground, parameters, config):
     result = evaluate_candidate(curve, config)
     if not result.accepted or not np.isfinite(result.score):
         return None
+    if family == "E":
+        physical_support, _ = final_E_support(mechanism, kinematic)
+        physical_curve = build_candidate_curve(kinematic, physical_support)
+    else:
+        physical_curve = curve
+    physical = compute_physical_metrics(
+        physical_curve, result.score_components, config
+    )
+    if (
+        physical["precompression_ratio"]
+        + config.epsilon
+        < config.precompression_min_ratio
+    ):
+        return None
     return mechanism, support, curve, result
 
 
@@ -188,6 +202,10 @@ def refine_candidate(entry, family, source_index, config, rng):
             f"stored={recorded_score}, reevaluated={current[3].score}"
         )
     current_score = float(current[3].score)
+    # Scores improve strictly, so reverse history order is also decreasing
+    # score order. It provides a transactional fallback when the final 0.1°
+    # physical check differs slightly from the coarse refinement check.
+    accepted_history = [(parameters.copy(), current)]
     steps = initial_steps(config, family, parameters["coupler"])
     tolerances = {name: 0.02 for name in steps}
 
@@ -212,23 +230,49 @@ def refine_candidate(entry, family, source_index, config, rng):
                     current = best
                     parameters = best_parameters
                     current_score = float(best[3].score)
+                    accepted_history.append((parameters.copy(), current))
                     round_improved = True
 
         if all(steps[name] <= tolerances[name] for name in steps):
             break
         steps = {name: step / 5.0 for name, step in steps.items()}
 
-    mechanism, scoring_support, _, result = current
     fine_config = replace(config, angle_step_deg=config.refinement_angle_step_deg)
-    fine_kinematic = solve(mechanism, fine_config)
-    if not fine_kinematic.valid:
-        raise AssertionError("Final accepted geometry is kinematically invalid")
-    if family == "E":
-        support, cde_angle_deg = final_E_support(mechanism, fine_kinematic)
-    else:
-        support, cde_angle_deg = scoring_support, None
-    fine_curve = build_candidate_curve(fine_kinematic, support)
-    physical = compute_physical_metrics(fine_curve, result.score_components, config)
+    selected = None
+    for historical_parameters, historical in reversed(accepted_history):
+        mechanism, scoring_support, _, result = historical
+        fine_kinematic = solve(mechanism, fine_config)
+        if not fine_kinematic.valid:
+            continue
+        if family == "E":
+            support, cde_angle_deg = final_E_support(mechanism, fine_kinematic)
+        else:
+            support, cde_angle_deg = scoring_support, None
+        fine_curve = build_candidate_curve(fine_kinematic, support)
+        physical = compute_physical_metrics(
+            fine_curve, result.score_components, config
+        )
+        if (
+            physical["precompression_ratio"] + config.epsilon
+            >= config.precompression_min_ratio
+        ):
+            selected = (
+                historical_parameters, historical, support, cde_angle_deg,
+                fine_curve, physical,
+            )
+            break
+
+    if selected is None:
+        raise ValueError(
+            f"Source {family} #{source_index} has no high-resolution state "
+            "meeting the precompression minimum"
+        )
+
+    (
+        parameters, current, support, cde_angle_deg, fine_curve, physical,
+    ) = selected
+    mechanism, _, _, result = current
+    current_score = float(result.score)
 
     if current_score + config.epsilon < recorded_score:
         raise AssertionError("Refinement score regressed")
@@ -355,24 +399,43 @@ def compute_physical_metrics(curve, score_components, config):
     if not math.isclose(cycle_sum, 360.0, abs_tol=1e-8):
         raise AssertionError(f"Plateau/exchange partition is not 360°: {cycle_sum}")
 
-    x = np.asarray(curve.x, dtype=float)
-    stroke = float(np.ptp(x))
-    empty_position = float(np.max(x) if empty_is_maximum else np.min(x))
+    x1 = np.asarray(curve.x, dtype=float)
+    x2 = symmetric_values(curve.theta, x1)
+    stroke = float(np.ptp(x1))
+    a3 = float(score_components["a3_angle"]) % 360.0
 
-    def volume_normalized(piston, angle):
-        """Swept volume: zero at empty position, one at full position."""
-        local_angle = angle if piston == 1 else (-angle) % 360.0
-        position = circular_interpolate(curve.theta, x, local_angle)
-        volume = (
-            empty_position - position if empty_is_maximum
-            else position - empty_position
-        )
-        return float(np.clip(volume / max(stroke, config.epsilon), 0.0, 1.0))
+    # There is one thermodynamically relevant precompression. At the selected
+    # event, one piston has just reached its full extremum while the other
+    # begins its empty plateau. We then move forward until that other piston
+    # leaves its real plateau and the exchange begins.
+    if a3 > 180.0:
+        precompression_start = (-a3) % 360.0
+        precompression_end = end1
+        full_piston = 2
+        full_curve = x2
+    else:
+        precompression_start = a3
+        precompression_end = end2
+        full_piston = 1
+        full_curve = x1
 
-    # At end1 piston 1 leaves its empty plateau; piston 2 is the full piston
-    # already closing. At end2 the roles are exactly reversed.
-    precompression_1_to_2 = 1.0 - volume_normalized(2, end1)
-    precompression_2_to_1 = 1.0 - volume_normalized(1, end2)
+    full_position = circular_interpolate(
+        curve.theta, full_curve, precompression_start
+    )
+    exchange_position = circular_interpolate(
+        curve.theta, full_curve, precompression_end
+    )
+    empty_position = float(
+        np.max(full_curve) if empty_is_maximum else np.min(full_curve)
+    )
+    full_to_empty = empty_position - full_position
+    if abs(full_to_empty) <= config.epsilon:
+        precompression = 0.0
+    else:
+        precompression = float(np.clip(
+            (exchange_position - full_position) / full_to_empty,
+            0.0, 1.0,
+        ))
     return {
         "useful_stroke": stroke,
         "real_plateau_start_deg": start1,
@@ -383,8 +446,13 @@ def compute_physical_metrics(curve, score_components, config):
         "symmetric_plateau_width_deg": width,
         "exchange_1_to_2_deg": exchange_1_to_2,
         "exchange_2_to_1_deg": exchange_2_to_1,
-        "precompression_1_to_2_ratio": precompression_1_to_2,
-        "precompression_2_to_1_ratio": precompression_2_to_1,
+        "precompression_ratio": precompression,
+        "precompression_start_deg": precompression_start,
+        "precompression_end_deg": precompression_end,
+        "precompression_width_deg": (
+            precompression_end - precompression_start
+        ) % 360.0,
+        "precompression_full_piston": full_piston,
         "empty_plateau_is_maximum": bool(empty_is_maximum),
     }
 

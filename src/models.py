@@ -131,6 +131,8 @@ class SearchStatistics:
 
     filter2_rejected: int = 0
 
+    precompression_rejected: int = 0
+
     accepted: int = 0
 
 

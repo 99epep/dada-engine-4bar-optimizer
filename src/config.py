@@ -87,6 +87,9 @@ class SolverConfig:
     # Plateau physique de la machine complète, indépendant du filtre 1.
     real_plateau_max_amplitude_ratio: float = 0.01
 
+    # Fermeture minimale du piston plein avant le début réel de l'échange.
+    precompression_min_ratio: float = 0.20
+
     plateau_center_1_deg: float = 90.0
     plateau_center_2_deg: float = 270.0
 
